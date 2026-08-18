@@ -36,14 +36,104 @@ SYNTHETICS = {"polyester", "acrylic", "nylon", "polyamide", "acetate"}
 NATURALS = {"cotton", "linen", "hemp", "wool", "merino", "cashmere", "silk"}
 
 
-def parse_composition(text):
-    """Pull [(fiber, pct)] out of a string like '60% Cotton, 40% Polyester'."""
-    pairs = []
-    for m in re.finditer(r"(\d{1,3})\s*%\s*([a-zA-Z ]+?)(?=,|\d|$)", text or ""):
-        pct = int(m.group(1))
-        name = m.group(2).strip().lower()
-        pairs.append((name, pct))
-    return pairs
+KNOWN_FIBERS = set(FIBER_QUALITY.keys()) | {"merino"}
+
+
+def _clean(name):
+    """'organic combed cotton' → 'cotton' if we recognise anything in it."""
+    name = name.strip().lower()
+    for key in KNOWN_FIBERS:
+        if key in name:
+            return key
+    return name
+
+
+def parse_composition(text, allow_bare=True):
+    """Pull [(fiber, pct)] out of whatever the tag or the shopper actually wrote.
+
+    Handles, in order of confidence:
+      '60% Cotton, 40% Polyester'   → explicit, both directions
+      'Cotton 60%  Polyester 40%'   → fiber-first
+      '80 cotton 20 polyester'      → numbers without the % sign (common OCR miss)
+      'cotton'                      → single fiber, assume 100%      (allow_bare)
+      'cotton polyester'            → unknown split, assume even     (allow_bare)
+
+    allow_bare=False refuses anything without explicit numbers. Used when scoring
+    someone *else's* product listing, where guessing would mean recommending an
+    item we cannot actually vouch for.
+    """
+    text = (text or "").lower()
+
+    # Where does each known fiber appear? (spans, so we can pair by proximity)
+    fiber_spans = []
+    for fiber in KNOWN_FIBERS:
+        for m in re.finditer(r"\b" + re.escape(fiber) + r"\b", text):
+            fiber_spans.append((m.start(), m.end(), fiber))
+    if not fiber_spans:
+        return []
+    fiber_spans.sort()
+
+    # 1. Explicit percentages, then 2. bare numbers. Pair each number with the
+    #    nearest fiber — after it first ("60% cotton"), otherwise before it
+    #    ("cotton 60%"). Order-agnostic, and it can't double-count the way two
+    #    competing regexes could.
+    for pattern in (r"(\d{1,3})\s*%", r"\b(\d{1,3})\b"):
+        numbers = list(re.finditer(pattern, text))
+        if not numbers:
+            continue
+
+        def nearest(m, side):
+            """Closest fiber after / before this number, within 25 chars."""
+            best, best_dist = None, 26
+            for s, e, fiber in fiber_spans:
+                if side == "after" and s >= m.end():
+                    dist = s - m.end()
+                elif side == "before" and e <= m.start():
+                    dist = m.start() - e
+                else:
+                    continue
+                if dist < best_dist:
+                    best, best_dist = fiber, dist
+            return best
+
+        # A tag is written one way throughout: either "60% cotton" or "cotton 60%".
+        # Decide which by counting where fibers actually sit, then apply that
+        # consistently — otherwise a number with a fiber on both sides silently
+        # binds to the wrong one and the whole composition comes out wrong.
+        after_hits = sum(1 for m in numbers if nearest(m, "after"))
+        before_hits = sum(1 for m in numbers if nearest(m, "before"))
+        primary, fallback = ("after", "before") if after_hits >= before_hits else ("before", "after")
+
+        pairs = []
+        for m in numbers:
+            fiber = nearest(m, primary) or nearest(m, fallback)
+            if fiber:
+                pairs.append((fiber, int(m.group(1))))
+        pairs = _dedupe(pairs)
+        if pairs:
+            return pairs
+
+    if not allow_bare:
+        return []
+
+    # 3. Bare fiber names, no numbers at all. One → 100%, several → even split.
+    found = []
+    for _, _, fiber in fiber_spans:
+        if fiber not in found:
+            found.append(fiber)
+    share = 100 // len(found)
+    return [(f, share) for f in found]
+
+
+def _dedupe(pairs):
+    """First mention of a fiber wins; drop nonsense percentages."""
+    seen, out = set(), []
+    for name, pct in pairs:
+        if not (0 < pct <= 100) or name in seen:
+            continue
+        seen.add(name)
+        out.append((name, pct))
+    return out
 
 
 def _fiber_weight(name):
@@ -54,8 +144,13 @@ def _fiber_weight(name):
     return name, 5.0  # unknown fiber → neutral
 
 
-def quality_score(composition):
-    pairs = parse_composition(composition)
+def synthetic_pct(matched):
+    """Share of the garment that is plastic, from a scored `matched` list."""
+    return sum(p for k, p, _ in matched if k in SYNTHETICS)
+
+
+def quality_score(composition, allow_bare=True):
+    pairs = parse_composition(composition, allow_bare=allow_bare)
     if not pairs:
         return None, []
     total = sum(p for _, p in pairs) or 100
@@ -87,6 +182,24 @@ def wear_estimate(score):
     if score >= 6:   return "Solid — should hold up for ~30–50 washes."
     if score >= 4.5: return "Middling — expect ~15–30 washes before it shows wear."
     return "Low — likely to pill or lose shape within ~5–10 washes."
+
+
+def expected_wears(score):
+    """Roughly how many wears before it looks tired. The denominator in
+    cost-per-wear, which is how Filo justifies a higher price honestly."""
+    if score is None:  return None
+    if score >= 8:     return 200
+    if score >= 7:     return 120
+    if score >= 6:     return 60
+    if score >= 4.5:   return 25
+    return 8
+
+
+def cost_per_wear(price, score):
+    wears = expected_wears(score)
+    if not price or not wears:
+        return None
+    return round(price / wears, 2)
 
 
 def care_flags(matched):
