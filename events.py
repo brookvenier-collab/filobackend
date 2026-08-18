@@ -140,6 +140,24 @@ CREATE INDEX IF NOT EXISTS scan_events_event_idx  ON scan_events (event);
 """
 
 
+def _driver():
+    """psycopg 3 if it's there, psycopg2 otherwise.
+
+    Both expose the same connect/cursor/executemany surface we use here, and
+    accepting either means a wheel problem on one of them can't take the whole
+    deploy down.
+    """
+    try:
+        import psycopg
+        return psycopg
+    except ImportError:
+        try:
+            import psycopg2
+            return psycopg2
+        except ImportError:
+            return None
+
+
 def _conn():
     """Return a live connection, or None if no database is configured.
 
@@ -148,9 +166,12 @@ def _conn():
     """
     if not DATABASE_URL:
         return None
+    driver = _driver()
+    if driver is None:
+        log.warning("events: no postgres driver installed")
+        return None
     try:
-        import psycopg
-        return psycopg.connect(DATABASE_URL, connect_timeout=5)
+        return driver.connect(DATABASE_URL, connect_timeout=5)
     except Exception as exc:            # noqa: BLE001
         log.warning("events: no database connection (%s)", exc)
         return None
