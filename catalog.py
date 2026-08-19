@@ -25,11 +25,16 @@ Set SERPAPI_KEY on Railway to turn search on. No key = returns nothing (safe).
 """
 import os
 import json
+import time
+import logging
 import urllib.parse
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import fabric
 import brands
+
+log = logging.getLogger("filo.catalog")
 
 SERPAPI_KEY = os.environ.get("SERPAPI_KEY", "")
 
@@ -39,20 +44,49 @@ PRICE_FLOOR = 0.60      # never show something suspiciously cheaper
 PRICE_CEILING = 2.50    # absolute ceiling, even with great cost-per-wear
 FREE_PRICE_HEADROOM = 1.40   # below this, no justification needed
 
+# A scan has to feel instant — the Scan screen promises "under 5 seconds".
+# Searches run concurrently and the whole search phase is capped, so a slow or
+# hanging provider costs a few seconds, never the verdict.
+QUERY_TIMEOUT = 7       # seconds per individual search
+SEARCH_BUDGET = 9       # seconds for the whole search phase, all queries
+CACHE_TTL = 60 * 60 * 6  # repeat searches are free for six hours
+
+_cache = {}             # query -> (expires_at, results)
+
+
+def _cached(query):
+    hit = _cache.get(query)
+    if hit and hit[0] > time.time():
+        return hit[1]
+    return None
+
 
 def _fetch(query, num=40):
-    """Raw Google Shopping results. Split out so the filter tests run offline."""
+    """Raw Google Shopping results. Split out so the filter tests run offline.
+
+    Cached, because Filo re-searches the same categories constantly and SerpAPI
+    bills per search.
+    """
     if not SERPAPI_KEY or not query:
         return []
+
+    hit = _cached(query)
+    if hit is not None:
+        return hit
+
     params = {"engine": "google_shopping", "q": query,
               "num": str(num), "api_key": SERPAPI_KEY}
     url = "https://serpapi.com/search.json?" + urllib.parse.urlencode(params)
     try:
-        with urllib.request.urlopen(url, timeout=12) as resp:
+        with urllib.request.urlopen(url, timeout=QUERY_TIMEOUT) as resp:
             data = json.loads(resp.read().decode())
-    except Exception:
+    except Exception as exc:            # noqa: BLE001
+        log.info("catalog: search failed for %r (%s)", query, exc)
         return []  # never break a scan because search failed
-    return data.get("shopping_results", []) or []
+
+    results = data.get("shopping_results", []) or []
+    _cache[query] = (time.time() + CACHE_TTL, results)
+    return results
 
 
 def _describe(item):
@@ -135,23 +169,52 @@ def search_alternatives(category=None, name=None, price=None,
                         scanned_score=None, limit=4):
     """Search several angles, keep only what we can vouch for, best first.
 
+    The queries run CONCURRENTLY and under a total time budget. Sequentially
+    they'd stack up behind each other and a scan could take the better part of a
+    minute — unacceptable on a screen that promises a verdict in five seconds.
+
     Returns [] often, and that is correct behaviour rather than a bug.
     """
-    queries = brands.build_queries(category or name)
+    subject = category or name
+    if not subject:
+        # Nothing to search on. A query like "clothing organic cotton" returns
+        # noise, and it would cost a SerpAPI credit to find that out.
+        return []
+
+    queries = brands.build_queries(subject)
+    deadline = time.time() + SEARCH_BUDGET
+
+    raw = []
+    # Deliberately not a `with` block: exiting one waits for every worker, so a
+    # hung provider would block the response even after the budget expired.
+    pool = ThreadPoolExecutor(max_workers=len(queries))
+    try:
+        futures = {pool.submit(_fetch, q): q for q in queries}
+        try:
+            for future in as_completed(futures, timeout=SEARCH_BUDGET):
+                try:
+                    raw.extend(future.result())
+                except Exception as exc:        # noqa: BLE001
+                    log.info("catalog: query %r failed (%s)", futures[future], exc)
+                if time.time() > deadline:
+                    break
+        except TimeoutError:
+            # Budget spent. Keep whatever came back and move on — a shopper
+            # waiting on the verdict matters more than a complete result set.
+            log.info("catalog: search budget exhausted, returning partial results")
+    finally:
+        pool.shutdown(wait=False)
 
     seen, kept = set(), []
-    for query in queries:
-        for item in _fetch(query):
-            key = (item.get("product_link") or item.get("link")
-                   or item.get("title") or "").lower()
-            if not key or key in seen:
-                continue
-            seen.add(key)
-            result = evaluate(item, price=price, scanned_score=scanned_score)
-            if result:
-                kept.append(result)
-        if len(kept) >= limit * 3:      # enough to rank well; stop burning API calls
-            break
+    for item in raw:
+        key = (item.get("product_link") or item.get("link")
+               or item.get("title") or "").lower()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        result = evaluate(item, price=price, scanned_score=scanned_score)
+        if result:
+            kept.append(result)
 
     # Known makers first, then by score. A brand Filo already rates for cloth
     # beats an unknown one at the same score.
