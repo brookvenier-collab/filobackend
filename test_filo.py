@@ -133,12 +133,38 @@ def test_price_earns_itself():
     check("$150 / 200 wears = $0.75", fabric.cost_per_wear(150, 8.0), 0.75)
 
 
+def test_season_calendar():
+    """Season names are computed, never guessed. Check the boundaries and the rollover."""
+    import style
+    from datetime import date
+    print("\n=== season calendar ===")
+    cases = [
+        (date(2026, 6, 30), "Spring/Summer 26", "Fall/Winter 26"),
+        (date(2026, 7, 1),  "Fall/Winter 26",   "Spring/Summer 27"),
+        (date(2026, 8, 31), "Fall/Winter 26",   "Spring/Summer 27"),
+        (date(2026, 12, 31), "Fall/Winter 26",  "Spring/Summer 27"),
+        (date(2027, 1, 1),  "Spring/Summer 27", "Fall/Winter 27"),
+        (date(2029, 11, 5), "Fall/Winter 29",   "Spring/Summer 30"),
+    ]
+    for d, cur, nxt in cases:
+        c = style.season_cycle(d)
+        check(f"{d} -> {cur}", c["current"] == cur and c["next"] == nxt, True)
+
+    # Wear left must fall as the season runs out, never go negative.
+    for d in (date(2026, 7, 1), date(2026, 10, 1), date(2026, 12, 1)):
+        check(f"{d} months left positive", style.season_cycle(d)["months_left"] > 0, True)
+
+    # No key means no style read, and no exception.
+    check("no API key returns None", style.style_read({"category": "coat"}) is None, True)
+
+
 if __name__ == "__main__":
     test_parser()
     test_scoring()
     test_integrity()
     test_no_fast_fashion()
     test_price_earns_itself()
+    test_season_calendar()
     print()
     if FAILS:
         print(f"{len(FAILS)} FAILURES")

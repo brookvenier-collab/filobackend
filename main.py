@@ -4,6 +4,7 @@ Run locally:   uvicorn main:app --reload   →   http://localhost:8000/docs
 The one endpoint the app uses is POST /analyze.
 """
 from typing import Optional
+from concurrent.futures import ThreadPoolExecutor
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -12,6 +13,7 @@ import fabric
 import catalog
 import events
 import aggregates
+import style
 
 app = FastAPI(title="Filo AI")
 
@@ -62,15 +64,38 @@ def analyze(req: AnalyzeRequest):
 
     score = result.get("score")
 
-    # catalog builds its own multi-angle search (fiber, certification, and the
-    # names of makers known for cloth) because one generic query only ever
-    # returns whoever has the biggest product feed. See brands.py.
-    alternatives = catalog.search_alternatives(
-        category=item.get("category"),
-        name=item.get("name"),
-        price=item.get("price"),
-        scanned_score=score,
-    )
+    # Product search and the style read are both network calls to other people's
+    # services, and neither depends on the other. Run them side by side: back to
+    # back they would stack to ~17s on a screen that promises five.
+    pool = ThreadPoolExecutor(max_workers=2)
+    try:
+        # catalog builds its own multi-angle search (fiber, certification, and the
+        # names of makers known for cloth) because one generic query only ever
+        # returns whoever has the biggest product feed. See brands.py.
+        alt_future = pool.submit(
+            catalog.search_alternatives,
+            category=item.get("category"),
+            name=item.get("name"),
+            price=item.get("price"),
+            scanned_score=score,
+        )
+        style_future = pool.submit(style.style_read, item)
+
+        try:
+            alternatives = alt_future.result(timeout=catalog.SEARCH_BUDGET + 2)
+        except Exception:                   # noqa: BLE001
+            alternatives = []
+
+        try:
+            read = style_future.result(timeout=style.STYLE_TIMEOUT + 2)
+        except Exception:                   # noqa: BLE001
+            read = None
+    finally:
+        # Never wait on a hung provider at exit — the verdict is the product.
+        pool.shutdown(wait=False)
+
+    if read:
+        result["style_read"] = read
 
     if alternatives:
         result["alternatives"] = alternatives
