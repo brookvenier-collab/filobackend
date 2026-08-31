@@ -15,6 +15,7 @@ import events
 import aggregates
 import style
 import vision
+import affiliate
 
 app = FastAPI(title="Filo AI")
 
@@ -120,6 +121,13 @@ def analyze(req: AnalyzeRequest):
         result["style_read"] = read
 
     if alternatives:
+        # LAST. The list is already found, filtered, scored and sorted — this
+        # only rewrites where each link points. Nothing is added, dropped or
+        # reordered here, which is what keeps "no paid rankings" literally true.
+        # See affiliate.py. Inert until AFFILIATE_NETWORK is configured.
+        affiliate.decorate(alternatives,
+                           scanned_score=score,
+                           category=item.get("category"))
         result["alternatives"] = alternatives
         result["alternatives_note"] = None
     elif not catalog.SERPAPI_KEY:

@@ -263,6 +263,51 @@ def test_mall_brands_cannot_flood():
     ]
     tie = catalog.search_alternatives("sweater", price=80, scanned_score=scanned)
     check("at equal quality the independent leads", tie[0]["brand"], "Asket")
+def test_affiliate_cannot_bend_the_ranking():
+    """Wrapping runs last, on a frozen list. It may change where a link points;
+    it may never change which links are shown or in what order."""
+    import affiliate
+    print("\n=== affiliate wrapping ===")
+
+    alts = [
+        {"name": "A", "url": "https://maker.example/a", "score": 8.0},
+        {"name": "B", "url": "https://maker.example/b", "score": 7.5},
+        {"name": "C", "url": "https://maker.example/c", "score": 7.2},
+    ]
+    before_order = [a["name"] for a in alts]
+
+    # Off by default — nothing configured, nothing changed.
+    affiliate.NETWORK = ""
+    out = affiliate.decorate([dict(a) for a in alts], scanned_score=5.4, category="sweater")
+    check("disabled -> urls untouched",
+          [a["url"] for a in out], [a["url"] for a in alts])
+    check("disabled -> affiliate flag false", all(not a["affiliate"] for a in out), True)
+
+    # Turned on.
+    affiliate.NETWORK = "skimlinks"
+    affiliate.SKIMLINKS_ID = "12345"
+    out = affiliate.decorate([dict(a) for a in alts], scanned_score=5.4, category="sweater")
+    check("enabled -> every link wrapped", all(a["affiliate"] for a in out), True)
+    check("wrapped link points at the network",
+          out[0]["url"].startswith("https://go.skimresources.com/"), True)
+    check("original destination survives inside",
+          "maker.example" in out[0]["url"], True)
+
+    # The guarantee.
+    check("order unchanged", [a["name"] for a in out], before_order)
+    check("nothing added or dropped", len(out), len(alts))
+
+    # SubID carries the verdict, and nothing else.
+    tag = affiliate.subid(scanned_score=5.4, alt_score=8.0, category="sweater")
+    check("subid encodes both scores", tag, "s54-a80-sweater")
+    check("subid is punctuation-free apart from dashes",
+          all(c.isalnum() or c == "-" for c in tag), True)
+
+    # A missing URL must not explode.
+    odd = affiliate.decorate([{"name": "D", "url": None, "score": 7.0}])
+    check("missing url handled", odd[0]["affiliate"], False)
+
+    affiliate.NETWORK = ""      # leave the module as we found it
 
 
 if __name__ == "__main__":
@@ -274,6 +319,7 @@ if __name__ == "__main__":
     test_season_calendar()
     test_look_never_overrides_quality()
     test_mall_brands_cannot_flood()
+    test_affiliate_cannot_bend_the_ranking()
     print()
     if FAILS:
         print(f"{len(FAILS)} FAILURES")
