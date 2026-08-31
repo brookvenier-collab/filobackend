@@ -44,6 +44,36 @@ UNVERIFIABLE_SOURCES = {
     "amazon", "walmart", "ebay", "etsy", "poshmark", "mercari", "wayfair",
 }
 
+# --------------------------------------------------------------------------
+# The mall tier. NOT blocked — these shops do sometimes make a decent cotton
+# tee, and blocking something that legitimately passes the fabric test would be
+# dishonest.
+#
+# But they were winning slots on feed size alone. A mall chain lists tens of
+# thousands of SKUs and prints "100% cotton" on plenty of them, while the small
+# makers Filo exists to surface have a few hundred products and lose on volume
+# every single time. The result was a shopper scanning a mall sweater and being
+# shown four more mall sweaters — technically better made, and useless.
+#
+# So they rank BELOW independent makers at equal quality, and take at most one
+# of the four slots. See MAX_MAINSTREAM in catalog.py.
+#
+# Note on COS, Arket, & Other Stories (H&M Group) and Massimo Dutti (Inditex):
+# their parents are blocked outright, but these lines genuinely use better cloth,
+# so they sit here and get judged on the garment like everyone else.
+# --------------------------------------------------------------------------
+MAINSTREAM = {
+    "abercrombie", "aerie", "american eagle", "hollister", "gap", "banana republic",
+    "j.crew", "j crew", "madewell", "anthropologie", "urban outfitters",
+    "free people", "express", "ann taylor", "loft", "talbots", "chico's",
+    "uniqlo", "everlane", "quince", "mango", "massimo dutti", "cos ",
+    "arket", "& other stories", "club monaco", "reiss", "ted baker",
+    "lululemon", "athleta", "gymshark", "alo yoga", "vuori", "fabletics",
+    "aritzia", "garage", "dynamite", "reitmans", "simons", "roots",
+    "nordstrom", "macy's", "bloomingdale", "dillard", "kohl's", "target",
+    "asos", "revolve", "shopbop", "boden", "white house black market",
+}
+
 
 # --------------------------------------------------------------------------
 # Makers worth surfacing, and what they're actually good at. `queries` are the
@@ -112,6 +142,34 @@ def is_known_maker(source):
     return any(maker in s for maker in QUALITY_MAKERS)
 
 
+def is_mainstream(source):
+    """True for mall and mass-market chains. Allowed, but never favoured."""
+    if not source:
+        return False
+    return any(name in source.lower() for name in MAINSTREAM)
+
+
+# Ranking tiers. Higher wins. The gap that matters is UNKNOWN above MAINSTREAM:
+# a small label Filo has never heard of, which has already proved its fibre
+# content and cleared the quality floor, is exactly the discovery this product
+# exists to make. A mall chain that cleared the same bar is not a discovery.
+TIER_MAKER = 3        # Filo already rates them for cloth
+TIER_UNKNOWN = 2      # unrecognised, passed every test — the interesting case
+TIER_MAINSTREAM = 1   # mall and mass-market
+TIER_BLOCKED = 0      # never returned at all
+
+
+def tier(source):
+    """Which ranking tier a retailer sits in."""
+    if is_blocked(source):
+        return TIER_BLOCKED
+    if is_known_maker(source):
+        return TIER_MAKER
+    if is_mainstream(source):
+        return TIER_MAINSTREAM
+    return TIER_UNKNOWN
+
+
 def makers_for(category):
     """Brands worth searching by name for this kind of garment."""
     if not category:
@@ -131,21 +189,42 @@ def fiber_upgrade_for(category):
     return "100% organic cotton"
 
 
-def build_queries(category, max_queries=4):
+def build_queries(category, max_queries=4, look=None):
     """Several angles at the same shelf, because one generic query only ever
     returns the shops with the biggest product feeds.
 
       1. fiber-led   — "women's t-shirt heavyweight organic cotton"
       2. cert-led    — "women's t-shirt OEKO-TEX certified"
       3/4. brand-led — "nudie jeans women's t-shirt"
+
+    `look` is the shape read off a photo of the garment (see vision.py) — e.g.
+    ["cropped", "crewneck", "chunky-knit", "sage"]. Without it a scan of a
+    cropped boxy sweater searches "sweater merino" and returns every well-made
+    sweater ever cut, which is right on fabric and wrong on taste.
+
+    The shape words are ADDED to queries, never used to exclude anything. A
+    listing that says "crop" where the model said "cropped" still comes back and
+    still gets judged on its fibre content, which is the actual promise.
     """
     cat = (category or "").strip() or "clothing"
+    look = [w for w in (look or []) if w][:3]
+    shape = " ".join(look)
+
+    # The shape goes on the fibre-led query (the one that returns the most) and
+    # on one brand-led query. Leaving a cert-led query un-narrowed keeps a wide
+    # net in play, so a wrong silhouette read can't sink the whole search.
     queries = [
-        f"{cat} {fiber_upgrade_for(cat)}",
+        f"{cat} {shape} {fiber_upgrade_for(cat)}".replace("  ", " ").strip()
+        if shape else f"{cat} {fiber_upgrade_for(cat)}",
         f"{cat} {QUALITY_QUALIFIERS[2]}",
     ]
-    for maker in makers_for(cat)[:max_queries - len(queries)]:
-        queries.append(f"{maker} {cat}")
+
+    makers = makers_for(cat)
+    for i, maker in enumerate(makers[:max_queries - len(queries)]):
+        if shape and i == 0:
+            queries.append(f"{maker} {cat} {shape}")
+        else:
+            queries.append(f"{maker} {cat}")
     return queries[:max_queries]
 
 

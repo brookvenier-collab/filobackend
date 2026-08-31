@@ -14,6 +14,7 @@ import catalog
 import events
 import aggregates
 import style
+import vision
 
 app = FastAPI(title="Filo AI")
 
@@ -39,6 +40,10 @@ class Item(BaseModel):
     category: Optional[str] = None
     price: Optional[float] = None
     composition: str
+    # Optional base64 JPEG of the garment itself (not the care label). Lets the
+    # search look for the right SHAPE, not just the right fibre. Omit it and the
+    # scan behaves exactly as it did before vision existed.
+    image: Optional[str] = None
 
 
 class AnalyzeRequest(BaseModel):
@@ -64,11 +69,28 @@ def analyze(req: AnalyzeRequest):
 
     score = result.get("score")
 
-    # Product search and the style read are both network calls to other people's
-    # services, and neither depends on the other. Run them side by side: back to
-    # back they would stack to ~17s on a screen that promises five.
-    pool = ThreadPoolExecutor(max_workers=2)
+    # Three calls to other people's services. The style read is independent, so
+    # it runs alongside everything. The vision read is NOT — the search needs the
+    # silhouette before it can look for it — so it gates the search and is kept
+    # on a deliberately short leash.
+    #
+    # With no image (the default) nothing waits on vision and the timing is
+    # identical to before this existed.
+    pool = ThreadPoolExecutor(max_workers=3)
     try:
+        style_future = pool.submit(style.style_read, item)
+
+        look = []
+        if req.item.image:
+            try:
+                seen = pool.submit(vision.describe, req.item.image) \
+                           .result(timeout=vision.VISION_TIMEOUT + 1)
+            except Exception:               # noqa: BLE001
+                seen = None
+            if seen:
+                result["look"] = seen
+                look = vision.descriptors(seen)
+
         # catalog builds its own multi-angle search (fiber, certification, and the
         # names of makers known for cloth) because one generic query only ever
         # returns whoever has the biggest product feed. See brands.py.
@@ -78,8 +100,8 @@ def analyze(req: AnalyzeRequest):
             name=item.get("name"),
             price=item.get("price"),
             scanned_score=score,
+            look=look,
         )
-        style_future = pool.submit(style.style_read, item)
 
         try:
             alternatives = alt_future.result(timeout=catalog.SEARCH_BUDGET + 2)

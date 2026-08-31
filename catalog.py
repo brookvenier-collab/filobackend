@@ -44,6 +44,12 @@ PRICE_FLOOR = 0.60      # never show something suspiciously cheaper
 PRICE_CEILING = 2.50    # absolute ceiling, even with great cost-per-wear
 FREE_PRICE_HEADROOM = 1.40   # below this, no justification needed
 
+# At most one mall brand in the list. They are not banned — a mall chain that
+# genuinely passes the fabric test has earned a place — but they have enormous
+# product feeds and were taking every slot on volume alone, which turned "better
+# made options" into "four more of the same shop". See brands.MAINSTREAM.
+MAX_MAINSTREAM = 1
+
 # A scan has to feel instant — the Scan screen promises "under 5 seconds".
 # Searches run concurrently and the whole search phase is capped, so a slow or
 # hanging provider costs a few seconds, never the verdict.
@@ -110,6 +116,25 @@ def _value_line(alt_price, alt_score, price, scanned_score):
     return f"Better made and no more expensive — ${a:.2f} a wear."
 
 
+def look_match(item, look):
+    """How much of the scanned garment's shape this listing echoes, 0.0-1.0.
+
+    RANKING ONLY — never a filter. A listing that matches nothing still gets
+    shown if it is better made, because fabric quality is the promise and
+    aesthetics are the assist. Matching is substring-based on purpose so that
+    "crop" catches "cropped" and "rib" catches "ribbed".
+    """
+    if not look:
+        return 0.0
+    text = _describe(item).lower()
+    hits = 0
+    for word in look:
+        stem = word.split("-")[0][:4]       # "chunky-knit" -> "chun", "cropped" -> "crop"
+        if stem and stem in text:
+            hits += 1
+    return hits / len(look)
+
+
 def evaluate(item, price=None, scanned_score=None):
     """Score one search result. Returns a dict to show, or None to drop it.
 
@@ -161,12 +186,13 @@ def evaluate(item, price=None, scanned_score=None):
         "url": item.get("product_link") or item.get("link"),
         "image_url": item.get("thumbnail"),
         "known_maker": brands.is_known_maker(source),
+        "tier": brands.tier(source),
         "value_note": _value_line(p, score, price, scanned_score),
     }
 
 
 def search_alternatives(category=None, name=None, price=None,
-                        scanned_score=None, limit=4):
+                        scanned_score=None, limit=4, look=None):
     """Search several angles, keep only what we can vouch for, best first.
 
     The queries run CONCURRENTLY and under a total time budget. Sequentially
@@ -181,7 +207,7 @@ def search_alternatives(category=None, name=None, price=None,
         # noise, and it would cost a SerpAPI credit to find that out.
         return []
 
-    queries = brands.build_queries(subject)
+    queries = brands.build_queries(subject, look=look)
     deadline = time.time() + SEARCH_BUDGET
 
     raw = []
@@ -214,9 +240,29 @@ def search_alternatives(category=None, name=None, price=None,
         seen.add(key)
         result = evaluate(item, price=price, scanned_score=scanned_score)
         if result:
+            result["match"] = look_match(item, look)
             kept.append(result)
 
-    # Known makers first, then by score. A brand Filo already rates for cloth
-    # beats an unknown one at the same score.
-    kept.sort(key=lambda r: (r["known_maker"], r["score"]), reverse=True)
-    return kept[:limit]
+    # Everything still standing has already cleared the quality gate inside
+    # evaluate(), so ordering among survivors can serve taste and discovery
+    # without weakening the promise. Closest in shape first (bucketed, so noise
+    # doesn't reshuffle near-ties), then tier, then raw score.
+    kept.sort(key=lambda r: (round(r["match"], 1), r["tier"], r["score"]),
+              reverse=True)
+
+    # Then cap the mall brands, so one chain with a huge feed can't own the list.
+    out, mainstream_used = [], 0
+    for r in kept:
+        if r["tier"] == brands.TIER_MAINSTREAM:
+            if mainstream_used >= MAX_MAINSTREAM:
+                continue
+            mainstream_used += 1
+        out.append(r)
+        if len(out) == limit:
+            break
+
+    # Deliberately NOT backfilled. If the cap leaves two results instead of four,
+    # two is the honest answer — the same reasoning that already returns an empty
+    # list rather than padding it with items whose fabric we can't read. Filling
+    # the shelf with mall brands is exactly the failure this tier exists to stop.
+    return out

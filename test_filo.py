@@ -156,6 +156,113 @@ def test_season_calendar():
 
     # No key means no style read, and no exception.
     check("no API key returns None", style.style_read({"category": "coat"}) is None, True)
+def test_look_never_overrides_quality():
+    """The photo read may reorder results. It may never let a worse one in.
+
+    This is the guarantee that matters: aesthetics are an assist, fabric quality
+    is the promise. A perfect visual match that fails the quality gate must still
+    be dropped, and a poor visual match that passes must still be shown.
+    """
+    import vision
+    print("\n=== shape ranks, quality still gates ===")
+    scanned = fabric.quality_score("60% Cotton, 40% Polyester")[0]
+    look = ["cropped", "crewneck", "chunky-knit", "sage"]
+
+    # Dead-on visually, but 100% polyester. Must not survive.
+    perfect_but_poly = {"title": "Cropped Chunky Knit Crewneck Sage 100% Polyester",
+                        "extracted_price": 80, "source": "M"}
+    check("perfect match, poly -> dropped",
+          catalog.evaluate(perfect_but_poly, price=80, scanned_score=scanned) is None, True)
+
+    # Visually unrelated, but genuinely better made. Must survive.
+    mismatch_but_good = {"title": "Oversized V-Neck Cardigan 100% Linen",
+                         "extracted_price": 90, "source": "M"}
+    check("no match, well made -> kept",
+          catalog.evaluate(mismatch_but_good, price=80, scanned_score=scanned) is not None, True)
+
+    # Ordering among things that ALREADY passed: closest shape leads.
+    items = [mismatch_but_good,
+             {"title": "Cropped Chunky Knit Crewneck Sweater 100% Cotton",
+              "extracted_price": 85, "source": "M"}]
+    catalog._fetch = lambda q, num=40: items
+    catalog.SERPAPI_KEY = "test"
+    results = catalog.search_alternatives("sweater", price=80,
+                                          scanned_score=scanned, look=look)
+    for r in results:
+        print(f"        match={r['match']:.2f}  score={r['score']}  {r['name']}")
+    check("closest shape leads", "Cropped" in (results[0]["name"] or ""), True)
+    check("the mismatch is still offered", len(results), 2)
+
+    # No photo at all -> unchanged behaviour, and no crash.
+    plain = catalog.search_alternatives("sweater", price=80, scanned_score=scanned)
+    check("no look -> still returns", len(plain), 2)
+    check("no look -> match is 0", all(r["match"] == 0.0 for r in plain), True)
+
+    # Vocabulary guard.
+    check("off-vocabulary dropped",
+          vision.sanitize({"silhouette": "vibey", "color": "sage"}), {"color": "sage"})
+    check("no image -> None", vision.describe(None) is None, True)
+def test_mall_brands_cannot_flood():
+    """Mall chains list tens of thousands of SKUs and were taking every slot on
+    feed size alone. A shopper scanning a mall sweater got four more mall
+    sweaters — technically better made, and useless as a recommendation."""
+    import brands
+    print("\n=== the mall tier ===")
+
+    for name, want in [("Abercrombie & Fitch", brands.TIER_MAINSTREAM),
+                       ("Gap", brands.TIER_MAINSTREAM),
+                       ("Aritzia", brands.TIER_MAINSTREAM),
+                       ("Lululemon", brands.TIER_MAINSTREAM),
+                       ("Zara", brands.TIER_BLOCKED),
+                       ("Amazon.com", brands.TIER_BLOCKED),
+                       ("ARMEDANGELS", brands.TIER_MAKER),
+                       ("SomeTinyLabel", brands.TIER_UNKNOWN)]:
+        check(f"tier of {name}", brands.tier(name), want)
+
+    check("an unknown label outranks a mall chain",
+          brands.TIER_UNKNOWN > brands.TIER_MAINSTREAM, True)
+
+    scanned = fabric.quality_score("60% Cotton, 40% Polyester")[0]
+    mall = [
+        {"title": "Cotton Crew 100% Cotton", "extracted_price": 90,
+         "source": "Abercrombie & Fitch", "link": "a"},
+        {"title": "Knit Sweater 100% Cotton", "extracted_price": 85,
+         "source": "Gap", "link": "b"},
+        {"title": "Wool Sweater 100% Merino Wool", "extracted_price": 110,
+         "source": "Banana Republic", "link": "c"},
+        {"title": "Cotton Sweater 100% Cotton", "extracted_price": 95,
+         "source": "Aritzia", "link": "d"},
+    ]
+    catalog._fetch = lambda q, num=40: mall
+    catalog.SERPAPI_KEY = "test"
+    only_mall = catalog.search_alternatives("sweater", price=80, scanned_score=scanned)
+    check("four mall brands in -> one out", len(only_mall), 1)
+
+    # A mall brand that genuinely passes is still allowed. Not a ban.
+    check("the one kept is a real result", only_mall[0]["score"] >= 7.0, True)
+
+    indie = mall + [
+        {"title": "Organic Cotton Sweater 100% Organic Cotton",
+         "extracted_price": 100, "source": "Kotn", "link": "e"},
+        {"title": "Merino Crew 100% Merino Wool",
+         "extracted_price": 120, "source": "ARMEDANGELS", "link": "f"},
+    ]
+    catalog._fetch = lambda q, num=40: indie
+    mixed = catalog.search_alternatives("sweater", price=80, scanned_score=scanned)
+    tiers = [r["tier"] for r in mixed]
+    check("independents lead the list", tiers[0], brands.TIER_MAKER)
+    check("at most one mall brand survives",
+          sum(1 for t in tiers if t == brands.TIER_MAINSTREAM) <= catalog.MAX_MAINSTREAM, True)
+
+    # Equal fabric, equal price: the independent wins.
+    catalog._fetch = lambda q, num=40: [
+        {"title": "Cotton Sweater 100% Cotton", "extracted_price": 90,
+         "source": "Abercrombie & Fitch", "link": "a"},
+        {"title": "Cotton Sweater 100% Cotton", "extracted_price": 92,
+         "source": "Asket", "link": "g"},
+    ]
+    tie = catalog.search_alternatives("sweater", price=80, scanned_score=scanned)
+    check("at equal quality the independent leads", tie[0]["brand"], "Asket")
 
 
 if __name__ == "__main__":
@@ -165,6 +272,8 @@ if __name__ == "__main__":
     test_no_fast_fashion()
     test_price_earns_itself()
     test_season_calendar()
+    test_look_never_overrides_quality()
+    test_mall_brands_cannot_flood()
     print()
     if FAILS:
         print(f"{len(FAILS)} FAILURES")
