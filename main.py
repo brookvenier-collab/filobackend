@@ -102,6 +102,7 @@ def analyze(req: AnalyzeRequest):
             price=item.get("price"),
             scanned_score=score,
             look=look,
+            material=result.get("material"),
         )
 
         try:

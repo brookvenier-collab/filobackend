@@ -30,10 +30,58 @@ FIBER_QUALITY = {
     "elastane": 5.0,
     "spandex": 5.0,
     "leather": 8.0,
+    # Leather's imitations. These are plastic coated onto a fabric backing: they
+    # crack and peel rather than age, and can't be repaired. Scored as the
+    # plastics they are, whatever the tag calls them.
+    "polyurethane": 2.5,
+    "pvc": 1.5,
+    "bondedleather": 3.0,   # leather scraps glued to a backing — peels like PU
 }
 
-SYNTHETICS = {"polyester", "acrylic", "nylon", "polyamide", "acetate"}
-NATURALS = {"cotton", "linen", "hemp", "wool", "merino", "cashmere", "silk"}
+SYNTHETICS = {"polyester", "acrylic", "nylon", "polyamide", "acetate",
+              "polyurethane", "pvc"}
+NATURALS = {"cotton", "linen", "hemp", "wool", "merino", "cashmere", "silk",
+            "leather"}
+
+# Tags and listings say "vegan leather" and "lambskin", never "polyurethane" and
+# "leather". Rewritten to one canonical word BEFORE parsing, fakes first — so
+# "faux leather" can never be read as the word "leather" and scored as the real
+# thing. Order matters: longest and most specific phrases first.
+_MATERIAL_ALIASES = [
+    (r"\bfaux[\s-]+suede\b|\bmicro[\s-]?suede\b|\bvegan[\s-]+suede\b", "polyester"),
+    (r"\b(?:faux|vegan|fake|imitation|synthetic|man[\s-]?made|artificial|pu|pvc)"
+     r"[\s-]+leather\b|\bleatherette\b|\bpleather\b|\bskai\b", "polyurethane"),
+    (r"\b(?:bonded|reconstituted|recycled)[\s-]+leather\b", "bondedleather"),
+    (r"\bpolyurethane\b|\bpu\b", "polyurethane"),
+    (r"\bpolyvinyl[\s-]+chloride\b|\bvinyl\b", "pvc"),
+    (r"\b(?:genuine|real|full[\s-]+grain|top[\s-]+grain|nappa)[\s-]+leather\b", "leather"),
+    (r"\b(?:lamb|calf|cow|goat|sheep|deer|buffalo)[\s-]?(?:skin|hide|leather)\b"
+     r"|\bsuede\b|\bnubuck\b|\bshearling\b", "leather"),
+]
+
+
+def normalize_materials(text):
+    """Rewrite leather and its imitations to canonical fiber words."""
+    text = (text or "").lower()
+    for pattern, canonical in _MATERIAL_ALIASES:
+        text = re.sub(pattern, canonical, text)
+    return text
+
+
+def material_class(matched):
+    """'real leather', 'faux leather', or None — from a scored `matched` list.
+
+    Decided by what makes up most of the garment, so a wool coat with leather
+    elbow patches is not a leather coat.
+    """
+    if not matched:
+        return None
+    top = max(matched, key=lambda m: m[1])[0]
+    if top == "leather":
+        return "real leather"
+    if top in ("polyurethane", "pvc", "bondedleather"):
+        return "faux leather"
+    return None
 
 
 KNOWN_FIBERS = set(FIBER_QUALITY.keys()) | {"merino"}
@@ -62,7 +110,7 @@ def parse_composition(text, allow_bare=True):
     someone *else's* product listing, where guessing would mean recommending an
     item we cannot actually vouch for.
     """
-    text = (text or "").lower()
+    text = normalize_materials(text)
 
     # Where does each known fiber appear? (spans, so we can pair by proximity)
     fiber_spans = []
@@ -138,6 +186,8 @@ def _dedupe(pairs):
 
 def _fiber_weight(name):
     """Map a raw fiber name (e.g. 'organic cotton') to a known fiber + weight."""
+    if name in FIBER_QUALITY:
+        return name, FIBER_QUALITY[name]
     for key, q in FIBER_QUALITY.items():
         if key in name:
             return key, q
@@ -220,10 +270,24 @@ def reasons(score, matched, price):
     out = []
     synth = sum(p for k, p, _ in matched if k in SYNTHETICS)
     natural = sum(p for k, p, _ in matched if k in NATURALS)
-    top_key = sorted(matched, key=lambda x: x[1], reverse=True)[0][0]
+    top_key, top_pct = sorted(matched, key=lambda x: x[1], reverse=True)[0][:2]
+    material = material_class(matched)
 
-    if synth >= 80:
+    if material == "faux leather":
+        if top_key == "bondedleather":
+            out.append("Bonded leather — scraps glued to a backing. It peels "
+                       "like faux leather, not ages like the real thing.")
+        else:
+            out.append("Faux leather — a plastic coating on fabric. It cracks "
+                       "and peels, usually within a couple of years, and can't "
+                       "be repaired.")
+    elif material == "real leather":
+        out.append("Real leather — it softens and ages instead of wearing out, "
+                   "and a good one lasts decades with care.")
+    elif synth >= 80:
         out.append(f"{synth}% synthetic — it'll trap heat, pill quickly, and won't age well.")
+    elif top_pct >= 100 and top_key in NATURALS:
+        out.append(f"100% {top_key} — breathable, durable, and it only gets better with time.")
     elif natural >= 80:
         out.append(f"Mostly {top_key} — breathable, durable, and it only gets better with time.")
     else:
@@ -266,12 +330,24 @@ def analyze(item):
             "alternatives_note": "Better-made alternatives turn on once product search is connected.",
         }
 
+    material = material_class(matched)
+    wears = wear_estimate(score)
+    flags = care_flags(matched)
+    # Washes are the wrong unit for leather. It fails by cracking, not pilling.
+    if material == "faux leather":
+        wears = "Low — expect cracking and peeling within a couple of years of regular wear."
+    elif material == "real leather":
+        wears = "Built to last — decades of wear with basic care."
+    if material:
+        flags = ["Don't machine wash — spot clean, and keep it away from direct heat."] + flags
+
     return {
         "score": score,
+        "material": material,
         "verdict": verdict(score),
         "reasons": reasons(score, matched, price),
-        "wears": wear_estimate(score),
-        "care_flags": care_flags(matched),
+        "wears": wears,
+        "care_flags": flags,
         "value_note": value_note(score, price),
         "alternatives": [],  # populated later via SerpAPI + look-matching
         "alternatives_note": "Better-made alternatives turn on once product search is connected.",

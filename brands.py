@@ -172,12 +172,15 @@ def tier(source):
 
 def makers_for(category):
     """Brands worth searching by name for this kind of garment."""
+    # No fallback to "the first six makers on the list". That fallback is how a
+    # jacket scan searched "nudie jeans jacket" and "armedangels jacket" and came
+    # back with knitwear: a maker who doesn't make the garment returns whatever
+    # they do make. No specialist for a category means no brand-led query.
     if not category:
-        return list(QUALITY_MAKERS)[:6]
+        return []
     c = category.lower()
-    hits = [name for name, meta in QUALITY_MAKERS.items()
-            if any(tag in c for tag in meta["good_at"])]
-    return hits[:6] or list(QUALITY_MAKERS)[:6]
+    return [name for name, meta in QUALITY_MAKERS.items()
+            if any(tag in c for tag in meta["good_at"])][:6]
 
 
 def fiber_upgrade_for(category):
@@ -189,7 +192,7 @@ def fiber_upgrade_for(category):
     return "100% organic cotton"
 
 
-def build_queries(category, max_queries=4, look=None):
+def build_queries(category, max_queries=4, look=None, material=None):
     """Several angles at the same shelf, because one generic query only ever
     returns the shops with the biggest product feeds.
 
@@ -209,6 +212,18 @@ def build_queries(category, max_queries=4, look=None):
     cat = (category or "").strip() or "clothing"
     look = [w for w in (look or []) if w][:3]
     shape = " ".join(look)
+
+    # Leather, real or fake, is only ever answered with real leather. A faux
+    # leather jacket's upgrade is a leather jacket — not a wool one, and never a
+    # sweater. Searched by material, with no brand-led queries, because none of
+    # the makers on the list work in leather.
+    if material in ("real leather", "faux leather"):
+        noun = cat if "leather" in cat.lower() else f"leather {cat}"
+        return [
+            f"{noun} {shape} genuine leather".replace("  ", " ").strip(),
+            f"{noun} full grain leather",
+            f"{noun} lambskin",
+        ][:max_queries]
 
     # The shape goes on the fibre-led query (the one that returns the most) and
     # on one brand-led query. Leaving a cert-led query un-narrowed keeps a wide

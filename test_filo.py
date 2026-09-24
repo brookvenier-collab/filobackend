@@ -310,6 +310,106 @@ def test_affiliate_cannot_bend_the_ranking():
     affiliate.NETWORK = ""      # leave the module as we found it
 
 
+def test_leather_and_garment_type():
+    """Brooklyn's scans, 24 Sep 2026: a faux leather jacket scanned as "jacket"
+    was offered a sweater, and a coat was offered the same Hobbs coat four times
+    in four sizes."""
+    import brands
+    print("\n=== leather, real and fake ===")
+    for tag, want in [("100% Polyurethane", "faux leather"),
+                      ("Shell: 100% PU", "faux leather"),
+                      ("100% vegan leather", "faux leather"),
+                      ("Faux leather", "faux leather"),
+                      ("100% bonded leather", "faux leather"),
+                      ("100% genuine leather", "real leather"),
+                      ("100% Lambskin", "real leather"),
+                      ("Suede", "real leather"),
+                      ("100% Cotton", None),
+                      ("80% wool 20% leather", None)]:
+        check(f"material of {tag!r}", fabric.material_class(fabric.quality_score(tag)[1]), want)
+
+    fake = fabric.quality_score("100% vegan leather")[0]
+    real = fabric.quality_score("100% lambskin leather")[0]
+    check("faux leather never scores like leather", fake < 4.5, True)
+    check("real leather scores as leather", real, 8.0)
+    check("faux suede is polyester, not leather",
+          fabric.parse_composition("100% faux suede"), [("polyester", 100)])
+
+    faux_scan = fabric.analyze({"composition": "100% polyurethane", "price": 120})
+    check("faux verdict says faux", "Faux leather" in faux_scan["reasons"][0], True)
+    check("no 'washes' for leather", "wash" in faux_scan["wears"], False)
+    check("100% cotton is not 'mostly'",
+          fabric.analyze({"composition": "100% Cotton"})["reasons"][0].startswith("100% cotton"), True)
+
+    print("\n=== a jacket is answered with a jacket ===")
+    for title, want in [("Organic Cotton Chore Jacket 100% Cotton", True),
+                        ("Merino Wool Sweater 100% Merino Wool", False),
+                        ("Wool Knit Sweater Jacket 100% Wool", False),
+                        ("Leather Moto 100% Lambskin", True),
+                        ("Wool Blazer 100% Wool", False),
+                        ("Puffer Vest 100% Cotton", False)]:
+        check(f"jacket <- {title[:34]}", catalog.same_garment(title, "jacket"), want)
+    for title, cat, want in [("Classic Crew Tee 100% Cotton", "t-shirt", True),
+                             ("Linen Guayabera Shirt 100% Linen", "t-shirt", False),
+                             ("Wool Raincoat 100% Wool", "coat", True),
+                             ("Oxford Shirt 100% Cotton", "shirt", True),
+                             ("Heavy Cotton T-Shirt 100% Cotton", "shirt", False)]:
+        check(f"{cat} <- {title[:34]}", catalog.same_garment(title, cat), want)
+
+    check("no fallback makers for jackets", brands.makers_for("jacket"), [])
+    q = brands.build_queries("jacket", material="faux leather")
+    check("faux leather searches real leather", all("leather jacket" in x for x in q), True)
+
+    scan = fabric.analyze({"composition": "100% polyurethane", "category": "jacket", "price": 150})
+    results = [
+        {"title": "Merino Wool Sweater 100% Merino Wool", "extracted_price": 140, "source": "Knitco", "link": "1"},
+        {"title": "Wool Bomber Jacket 100% Wool", "extracted_price": 180, "source": "Woolco", "link": "2"},
+        {"title": "Vegan Leather Moto Jacket 100% Polyurethane", "extracted_price": 120, "source": "Fakeco", "link": "3"},
+        {"title": "Leather Biker Jacket 100% Lambskin", "extracted_price": 320, "source": "Hideco", "link": "4"},
+    ]
+    catalog._fetch = lambda q, num=40: results
+    catalog.SERPAPI_KEY = "test"
+    alts = catalog.search_alternatives("jacket", price=150, scanned_score=scan["score"],
+                                       material=scan["material"])
+    check("faux leather jacket -> only real leather jackets",
+          [a["brand"] for a in alts], ["Hideco"])
+
+    print("\n=== one product is one option, not one per size ===")
+    hobbs = [{"title": f"Hobbs Livia Wool Coat Beryl Red Size {n}", "extracted_price": 570,
+              "source": "Hobbs", "link": f"h{n}"} for n in (18, 6, 2, 4)]
+    hobbs.insert(1, {"title": "Hobbs Petite Livia Wool Coat Beryl Red Size 6",
+                     "extracted_price": 570, "source": "Hobbs", "link": "hp"})
+    others = [{"title": f"{w} Wool Overcoat 100% Wool", "extracted_price": 500,
+               "source": "Coatmaker", "link": f"c{w}"} for w in ("Camel", "Navy", "Grey")]
+    for h in hobbs:
+        h["title"] += " 100% Wool"
+    catalog._fetch = lambda q, num=40: hobbs + others
+    alts = catalog.search_alternatives("coat", price=400, scanned_score=7.0)
+    names = [a["name"] for a in alts]
+    for n in names:
+        print("       ", n)
+    check("sizes collapse to one Hobbs coat", sum(1 for a in alts if a["brand"] == "Hobbs"), 1)
+    check("no brand takes more than two slots",
+          max(sum(1 for a in alts if a["brand"] == b) for b in {a["brand"] for a in alts})
+          <= catalog.MAX_PER_BRAND, True)
+
+
+def test_no_price_still_has_a_range():
+    """A coat scanned with no price came back with $570-$760 coats."""
+    print("\n=== no price entered -> still a sensible range ===")
+    coats = [{"title": "Wool Coat 100% Wool", "extracted_price": 280, "source": "A", "link": "a"},
+             {"title": "Cashmere Overcoat 100% Cashmere", "extracted_price": 760, "source": "B", "link": "b"}]
+    catalog._fetch = lambda q, num=40: coats
+    catalog.SERPAPI_KEY = "test"
+    alts = catalog.search_alternatives("coat", price=None, scanned_score=7.0)
+    check("no price: $760 coat dropped, $280 kept", [a["brand"] for a in alts], ["A"])
+    check("no price: no made-up cost-per-wear line", alts[0]["value_note"], None)
+    check("leather gets a leather-sized range",
+          catalog.typical_price("jacket", "faux leather"), catalog.TYPICAL_LEATHER_PRICE)
+    check("with a price, the real band still rules",
+          [a["brand"] for a in catalog.search_alternatives("coat", price=600, scanned_score=7.0)], ["B"])
+
+
 if __name__ == "__main__":
     test_parser()
     test_scoring()
@@ -320,6 +420,8 @@ if __name__ == "__main__":
     test_look_never_overrides_quality()
     test_mall_brands_cannot_flood()
     test_affiliate_cannot_bend_the_ranking()
+    test_leather_and_garment_type()
+    test_no_price_still_has_a_range()
     print()
     if FAILS:
         print(f"{len(FAILS)} FAILURES")
