@@ -312,6 +312,72 @@ def value_note(score, price):
     return None
 
 
+# ---------------------------------------------------------------- price vs make
+# Rough price ranges, per garment group, for pieces made two ways: cheaply
+# (mostly synthetic, score under 4.5) and well (score 7+). HAND-SET STARTING
+# ESTIMATES in CAD/USD for mid-market retail — tune them, and replace them with
+# aggregates.category_benchmark() once the scan data clears its k-anonymity floor.
+PRICE_GUIDE = {
+    #            cheaply made   well made
+    "t-shirt":  ((10, 30),     (35, 80)),
+    "top":      ((15, 40),     (45, 110)),
+    "blouse":   ((20, 50),     (60, 160)),
+    "shirt":    ((20, 50),     (60, 150)),
+    "sweater":  ((25, 60),     (80, 220)),
+    "cardigan": ((25, 60),     (80, 220)),
+    "hoodie":   ((25, 55),     (70, 160)),
+    "jeans":    ((30, 70),     (90, 220)),
+    "trousers": ((25, 60),     (80, 200)),
+    "shorts":   ((15, 35),     (40, 100)),
+    "leggings": ((20, 50),     (50, 120)),
+    "skirt":    ((20, 50),     (60, 160)),
+    "dress":    ((30, 70),     (90, 250)),
+    "jacket":   ((50, 120),    (150, 400)),
+    "blazer":   ((50, 120),    (180, 450)),
+    "coat":     ((70, 160),    (220, 600)),
+    "leather":  ((60, 150),    (300, 800)),   # leather-look jackets and coats
+}
+
+
+def _describe_make(matched):
+    material = material_class(matched)
+    if material:
+        return material
+    top_key, top_pct = sorted(matched, key=lambda x: x[1], reverse=True)[0][:2]
+    if top_key == "bondedleather":
+        return "bonded leather"
+    return f"{top_pct}% {top_key}"
+
+
+def price_note(score, matched, price, group, material=None):
+    """One plain sentence comparing the price to what pieces made like this
+    usually cost. None when there's nothing useful to say."""
+    if price is None or score is None or not matched:
+        return None
+    key = "leather" if material in ("real leather", "faux leather") else group
+    guide = PRICE_GUIDE.get(key)
+    if not guide:
+        return None
+    (cheap_lo, cheap_hi), (good_lo, good_hi) = guide
+    make = _describe_make(matched)
+    p = f"${price:,.0f}"
+    if score < 4.5:
+        if price > cheap_hi * 1.25:
+            return (f"{p} is a lot for {make}. Pieces made like this usually "
+                    f"sell for ${cheap_lo}–{cheap_hi}.")
+        return f"About the going rate for {make} — just don't expect it to last."
+    if score >= 7:
+        if price <= good_hi:
+            return "A fair price for something made this well."
+        if price > good_hi * 1.5:
+            return (f"Well made, but priced above most pieces of this quality "
+                    f"(usually ${good_lo}–{good_hi}). You may be paying for the name.")
+    return None
+
+
+PRICE_PROMPT = "Add the price to see if it's worth it."
+
+
 def analyze(item):
     """The one function the app calls (via /analyze). Returns the full verdict."""
     composition = item.get("composition", "")

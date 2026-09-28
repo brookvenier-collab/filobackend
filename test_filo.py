@@ -410,6 +410,69 @@ def test_no_price_still_has_a_range():
           [a["brand"] for a in catalog.search_alternatives("coat", price=600, scanned_score=7.0)], ["B"])
 
 
+def test_v11_department_price_fast_accounts():
+    print("\n=== v11: department ===")
+    for t, want in [("Women's Wool Coat", "women"), ("Mens Leather Jacket", "men"),
+                    ("Men's Genuine Leather Biker Jacket", "men"), ("Womens Trench", "women"),
+                    ("Wool Overcoat", None), ("Unisex Chore Jacket", None)]:
+        check(f"department of {t!r}", catalog.department_of(t), want)
+    check("reads department off 1.0 category string",
+          catalog.normalize_department(None, "women's black jacket"), "women")
+    check("explicit field wins", catalog.normalize_department("Men's", "women's jacket"), "men")
+    check("Everyone = no filter", catalog.normalize_department("Everyone", "jacket"), None)
+
+    listings = [
+        {"title": "Men's Genuine Leather Biker Jacket 100% Lambskin", "extracted_price": 300, "source": "A", "link": "1"},
+        {"title": "Women's Lambskin Moto Jacket 100% Lambskin", "extracted_price": 320, "source": "B", "link": "2"},
+        {"title": "Leather Trucker Jacket 100% Cowhide", "extracted_price": 280, "source": "C", "link": "3"},
+    ]
+    catalog._fetch = lambda q, num=40: listings
+    catalog.SERPAPI_KEY = "test"
+    alts = catalog.search_alternatives("jacket", price=150, scanned_score=1.7,
+                                       material="faux leather", department="women")
+    check("women's scan: no menswear", sorted(a["brand"] for a in alts), ["B", "C"])
+
+    print("\n=== v11: price vs make ===")
+    poly = fabric.quality_score("100% Polyester")
+    note = fabric.price_note(poly[0], poly[1], 75, "t-shirt")
+    check("$75 poly tee called out", note.startswith("$75 is a lot for 100% polyester"), True)
+    check("$20 poly tee: going rate",
+          fabric.price_note(poly[0], poly[1], 20, "t-shirt").startswith("About the going rate"), True)
+    wool = fabric.quality_score("100% Wool")
+    check("well-made coat, fair price",
+          fabric.price_note(wool[0], wool[1], 300, "coat"), "A fair price for something made this well.")
+    check("no price -> no note", fabric.price_note(poly[0], poly[1], None, "t-shirt"), None)
+    faux = fabric.quality_score("100% polyurethane")
+    check("faux leather uses leather guide",
+          "faux leather" in fabric.price_note(faux[0], faux[1], 250, "jacket", "faux leather"), True)
+
+    print("\n=== v11: fast score mode + prompts ===")
+    import main
+    fast = main.analyze(main.AnalyzeRequest(item=main.Item(composition="100% Polyester", mode="score")))
+    check("fast mode returns a score", fast["score"], 2.2)
+    check("fast mode is pending", fast["pending"], True)
+    check("no price -> prompt", fast["price_prompt"], fabric.PRICE_PROMPT)
+    check("no price -> no value verdict", fast["value_note"], None)
+    priced = main.analyze(main.AnalyzeRequest(item=main.Item(composition="100% Polyester",
+                                                             price=75, category="t-shirt", mode="score")))
+    check("price -> price note", (priced["price_note"] or "").startswith("$75"), True)
+    check("price -> no prompt", priced["price_prompt"], None)
+    check("/config shape", sorted(main.config().keys()), ["home_image_alt", "home_image_url"])
+
+    print("\n=== v11: account sessions ===")
+    import accounts, uuid
+    aid = str(uuid.uuid4())
+    tok = accounts.issue_session(aid)
+    check("session round-trips", accounts.check_session("Bearer " + tok), aid)
+    check("tampered session rejected", accounts.check_session(tok[:-2] + "xx"), None)
+    check("garbage rejected", accounts.check_session("nope"), None)
+    try:
+        accounts.verify_apple_token("x" * 40)
+        check("bad apple token rejected", False, True)
+    except ValueError:
+        check("bad apple token rejected", True, True)
+
+
 if __name__ == "__main__":
     test_parser()
     test_scoring()
@@ -422,6 +485,7 @@ if __name__ == "__main__":
     test_affiliate_cannot_bend_the_ranking()
     test_leather_and_garment_type()
     test_no_price_still_has_a_range()
+    test_v11_department_price_fast_accounts()
     print()
     if FAILS:
         print(f"{len(FAILS)} FAILURES")

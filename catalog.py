@@ -123,6 +123,45 @@ TYPICAL_LEATHER_PRICE = 350   # leather jackets and coats sit well above cloth o
 TYPICAL_FALLBACK = 80
 
 
+# ---------------------------------------------------------------- department
+# A women's scan was being answered with menswear. The department now filters:
+# a listing that says it is for the other department is dropped. A listing that
+# names neither (most do) is kept — unisex and untagged pieces are fair answers.
+_WOMEN = re.compile(r"\b(women'?s?|womens|ladies|lady's|female|girls?)\b")
+_MEN = re.compile(r"\b(men'?s?|mens|male|boys?|gents?)\b")
+
+
+def department_of(text):
+    """'women', 'men', or None for text that says neither (or both)."""
+    t = (text or "").lower().replace("\u2019", "'")
+    w, m = bool(_WOMEN.search(t)), bool(_MEN.search(t))
+    if w and not m:
+        return "women"
+    if m and not w:
+        return "men"
+    return None
+
+
+def normalize_department(value, category=None):
+    """Accepts "Women's" / "Men's" / "Everyone", or reads it off the category
+    string the 1.0 app sends ("women's black jacket")."""
+    v = (value or "").lower()
+    if v.startswith("wom"):
+        return "women"
+    if v.startswith("men"):
+        return "men"
+    if v.startswith("every") or v == "unisex":
+        return None
+    return department_of(category)
+
+
+def same_department(listing_title, department):
+    if not department:
+        return True
+    found = department_of(listing_title)
+    return found is None or found == department
+
+
 def typical_price(category, material=None):
     """A stand-in price for the band when the shopper gave none."""
     if material in ("real leather", "faux leather"):
@@ -272,7 +311,7 @@ def look_match(item, look):
 
 
 def evaluate(item, price=None, scanned_score=None, category=None,
-             material=None, assumed_price=None):
+             material=None, assumed_price=None, department=None):
     """Score one search result. Returns a dict to show, or None to drop it.
 
     Pure function, no network — this is the part worth testing.
@@ -286,6 +325,10 @@ def evaluate(item, price=None, scanned_score=None, category=None,
     # 0b. It has to be the same kind of garment. A jacket is answered with a
     #     jacket, never a sweater, however well made the sweater is.
     if not same_garment(item.get("title"), category):
+        return None
+
+    # 0c. And for the right department. No menswear on a women's scan.
+    if not same_department(item.get("title"), department):
         return None
 
     p = item.get("extracted_price")
@@ -348,7 +391,8 @@ def evaluate(item, price=None, scanned_score=None, category=None,
 
 
 def search_alternatives(category=None, name=None, price=None,
-                        scanned_score=None, limit=4, look=None, material=None):
+                        scanned_score=None, limit=4, look=None, material=None,
+                        department=None):
     """Search several angles, keep only what we can vouch for, best first.
 
     The queries run CONCURRENTLY and under a total time budget. Sequentially
@@ -400,7 +444,7 @@ def search_alternatives(category=None, name=None, price=None,
             seen.add(link)
         result = evaluate(item, price=price, scanned_score=scanned_score,
                           category=subject, material=material,
-                          assumed_price=assumed)
+                          assumed_price=assumed, department=department)
         if result:
             result["match"] = look_match(item, look)
             kept.append(result)
