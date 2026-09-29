@@ -500,18 +500,17 @@ def test_v12_closet_fund():
           else any("depop" == b for b in brands.UNVERIFIABLE_SOURCES), True)
 
     # Rates and tiers.
-    check("verdict rate", fund.rate_for("v", "cotton"), 3)
-    check("closet rate", fund.rate_for("c", "wool"), 5)
-    check("closet rate at silk", fund.rate_for("c", "silk"), 6)
+    check("verdict rate", fund.rate_for("v", "bronze"), 3)
+    check("closet rate", fund.rate_for("c", "silver"), 5)
+    check("closet rate at gold", fund.rate_for("c", "gold"), 6)
     base = {"scans": 0, "prices": 0, "saves": 0, "shared": False}
-    check("new member is cotton", fund.tier_for(base, 0), "cotton")
-    check("cotton shows steps left", fund.next_step(base, 0, "cotton")["label"], "4 steps until Wool")
+    check("new member is bronze", fund.tier_for(base, 0), "bronze")
+    check("bronze shows steps left", fund.next_step(base, 0, "bronze")["label"], "4 steps until Silver")
     done = {"scans": 1, "prices": 1, "saves": 3, "shared": True}
-    check("checklist done -> wool", fund.tier_for(done, 0), "wool")
-    check("25 scans, no purchase -> still wool", fund.tier_for(dict(done, scans=25), 0), "wool")
-    check("25 scans + 1 purchase -> silk", fund.tier_for(dict(done, scans=25), 1), "silk")
-    check("100 scans + 5 purchases -> cashmere", fund.tier_for(dict(done, scans=100), 5), "cashmere")
-    check("scans alone never reach silk", fund.tier_for(dict(done, scans=999), 0), "wool")
+    check("checklist done -> silver", fund.tier_for(done, 0), "silver")
+    check("25 scans, 2 purchases -> still silver", fund.tier_for(dict(done, scans=25), 2), "silver")
+    check("25 scans + 3 purchases -> gold", fund.tier_for(dict(done, scans=25), 3), "gold")
+    check("scans alone never reach gold", fund.tier_for(dict(done, scans=999), 0), "silver")
 
     # Links.
     check("click ref is alphanumeric", fund.new_click_ref("c").isalnum(), True)
@@ -540,7 +539,7 @@ def test_v12_closet_fund():
     a, b = str(uuid.uuid4()), str(uuid.uuid4())
     s = fund.summary_for(a)
     check("welcome points", s["points_available"], 100)
-    check("starts cotton", s["tier"], "cotton")
+    check("starts bronze", s["tier"], "bronze")
     check("sign-in already ticked", s["checklist_done"], 1)
     check("welcome only once", fund.summary_for(a)["points_available"], 100)
 
@@ -567,7 +566,7 @@ def test_v12_closet_fund():
     for ev in ("scan", "price", "share"):
         fund.record_progress(a, fund.ProgressEvent(event=ev))
     fund.record_progress(a, fund.ProgressEvent(event="save", count=3))
-    check("a reaches wool", fund.summary_for(a)["tier"], "wool")
+    check("a reaches silver", fund.summary_for(a)["tier"], "silver")
 
     # Tap -> purchase. Purchase points off: order shows, 0 points.
     os.environ.pop("FUND_PURCHASE_POINTS", None)
@@ -614,9 +613,9 @@ def test_v12_closet_fund():
     check("cancel refunds", fund.summary_for(a)["points_available"], 1050)
 
     # Card finish.
-    check("wool can pick cotton", fund.set_card(a, "cotton")["card_finish"], "cotton")
+    check("silver can pick bronze", fund.set_card(a, "bronze")["card_finish"], "bronze")
     try:
-        fund.set_card(a, "cashmere")
+        fund.set_card(a, "gold")
         check("locked finish refused", False, True)
     except ValueError:
         check("locked finish refused", True, True)

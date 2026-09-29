@@ -5,7 +5,7 @@ THE RULES (decided by Brooklyn, Sept 2026)
   * 100 points = $1. No cash value; redeemed as gift cards.
   * Welcome: 100 points on first sign-in.
   * Buy a Filo pick from a verdict: 3 points per $1.
-  * Buy a piece saved to the Closet, through the Closet link: 5 per $1 (6 at Silk+).
+  * Buy a piece saved to the Closet, through the Closet link: 5 per $1 (6 at Gold).
   * Invite a friend who then scans on 3 different days within 30 days: 200 points,
     to the person who invited ONLY. The invited friend gets nothing (App Store 3.2.2).
   * Redeem 1,000 = $10, 2,500 = $25, 5,000 = $50.
@@ -15,10 +15,9 @@ THE RULES (decided by Brooklyn, Sept 2026)
   * No points for ratings, reviews or turning on notifications.
 
 FABRIC TIERS (status, not money)
-  Cotton    signed in
-  Wool      getting-started checklist complete
-  Silk      Wool + 25 scans + 1 well-made purchase
-  Cashmere  Silk + 100 scans + 5 well-made purchases
+  Bronze    signed in
+  Silver    getting-started checklist complete
+  Gold      Silver + 25 scans + 3 well-made purchases
 Tiers move on habits (scans, checklist) and purchases. Only purchases, the welcome
 gift and referrals add points, so what Filo pays out stays tied to real revenue.
 
@@ -79,23 +78,21 @@ MAX_SCANS_PER_DAY = 40          # counted toward tiers; more than this is ignore
 EXPIRY_DAYS = 365
 REDEEM_OPTIONS = [(1000, 10), (2500, 25), (5000, 50)]
 
-TIER_ORDER = ["cotton", "wool", "silk", "cashmere"]
-TIER_NAMES = {"cotton": "Cotton", "wool": "Wool", "silk": "Silk", "cashmere": "Cashmere"}
+TIER_ORDER = ["bronze", "silver", "gold"]
+TIER_NAMES = {"bronze": "Bronze", "silver": "Silver", "gold": "Gold"}
 TIER_REQUIREMENTS = {
-    "cotton": "Sign in with Apple",
-    "wool": "Finish getting started",
-    "silk": "25 scans and 1 well-made purchase",
-    "cashmere": "100 scans and 5 well-made purchases",
+    "bronze": "Sign in with Apple",
+    "silver": "Finish getting started",
+    "gold": "25 scans and 3 well-made purchases",
 }
 TIER_PERKS = {
-    "cotton": ["3 points per $1 on Filo picks", "5 points per $1 on Closet buys"],
-    "wool": ["Choose your card's fabric", "Early access to new features"],
-    "silk": ["6 points per $1 on Closet buys", "Your monthly Filo Edit (coming soon)"],
-    "cashmere": ["Filo Concierge: a person checks any link for you (coming soon)",
-                 "Everything in Silk"],
+    "bronze": ["3 points per $1 on Filo picks", "5 points per $1 on Closet buys"],
+    "silver": ["Choose your card", "Early access to new features"],
+    "gold": ["6 points per $1 on Closet buys", "Your monthly Filo Edit (coming soon)",
+             "Filo Concierge (coming later)"],
 }
-SILK_SCANS, SILK_BUYS = 25, 1
-CASHMERE_SCANS, CASHMERE_BUYS = 100, 5
+GOLD_SCANS, GOLD_BUYS = 25, 3
+FRIENDS_GOAL = 3
 
 SOURCES = {"v": "verdict", "c": "closet"}
 
@@ -103,7 +100,7 @@ SOURCES = {"v": "verdict", "c": "closet"}
 def rate_for(source: str, tier: str) -> int:
     """Points per $1 for a purchase from this source at this tier."""
     if source == "c":
-        return 6 if TIER_ORDER.index(tier) >= TIER_ORDER.index("silk") else 5
+        return 6 if tier == "gold" else 5
     return 3
 
 
@@ -263,28 +260,25 @@ def checklist(p: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 
 def tier_for(p: Dict[str, Any], purchases: int) -> str:
-    tier = "cotton"
+    tier = "bronze"
     if all(c["done"] for c in checklist(p)):
-        tier = "wool"
-        if p["scans"] >= SILK_SCANS and purchases >= SILK_BUYS:
-            tier = "silk"
-            if p["scans"] >= CASHMERE_SCANS and purchases >= CASHMERE_BUYS:
-                tier = "cashmere"
+        tier = "silver"
+        if p["scans"] >= GOLD_SCANS and purchases >= GOLD_BUYS:
+            tier = "gold"
     return tier
 
 
 def next_step(p: Dict[str, Any], purchases: int, tier: str) -> Dict[str, Any]:
-    """What the card says under the big number: '3 steps until Wool', and a 0–1 bar."""
-    if tier == "cotton":
+    """What the card says under the big number: '2 steps until Silver', and a 0–1 bar."""
+    if tier == "bronze":
         items = checklist(p)
         left = sum(1 for c in items if not c["done"])
-        return {"next": "wool", "count": left,
-                "label": f"{left} step{'s' if left != 1 else ''} until Wool",
+        return {"next": "silver", "count": left,
+                "label": f"{left} step{'s' if left != 1 else ''} until Silver",
                 "progress": round((len(items) - left) / len(items), 3)}
-    if tier in ("wool", "silk"):
-        scans_goal, buys_goal = ((SILK_SCANS, SILK_BUYS) if tier == "wool"
-                                 else (CASHMERE_SCANS, CASHMERE_BUYS))
-        nxt = "silk" if tier == "wool" else "cashmere"
+    if tier == "silver":
+        scans_goal, buys_goal = GOLD_SCANS, GOLD_BUYS
+        nxt = "gold"
         scans_left = max(scans_goal - p["scans"], 0)
         buys_left = max(buys_goal - purchases, 0)
         parts = []
@@ -398,6 +392,8 @@ def summary_for(account_id: str) -> Dict[str, Any]:
                       "points_each": REFERRAL_POINTS},
         "can_enter_code": can_enter,
         "stats": {"scans": p["scans"], "purchases": purchases},
+        "goals": {"activity": len(items), "purchases": GOLD_BUYS,
+                  "scans": GOLD_SCANS, "friends": FRIENDS_GOAL},
         "history": history,
     }
 
@@ -729,8 +725,8 @@ def set_card(account_id: str, finish: str) -> Dict[str, Any]:
         p = _ensure(cur, account_id)
         tier = _tier(cur, p)
         allowed = TIER_ORDER[:TIER_ORDER.index(tier) + 1]
-        if tier == "cotton":
-            raise ValueError("Reach Wool to choose your card's fabric.")
+        if tier == "bronze":
+            raise ValueError("Reach Silver to choose your card.")
         if finish not in allowed:
             raise ValueError("That fabric isn't unlocked yet.")
         cur.execute("UPDATE fund_progress SET card_finish=%s WHERE account_id=%s",
