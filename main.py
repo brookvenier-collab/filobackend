@@ -7,6 +7,8 @@ import os
 from typing import Optional
 from concurrent.futures import ThreadPoolExecutor
 from fastapi import FastAPI, Header, HTTPException
+from fastapi.responses import HTMLResponse
+import html as _html
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -360,6 +362,59 @@ def fund_admin_sync(day: Optional[str] = None,
     if day:
         return {"sync": _fund_call(fund.sovrn_sync, day)}
     return _fund_call(fund.run_daily)
+
+
+# ----------------------------------------------------------------- invite links
+# The link in "have you seen this app??" texts. A small Filo page with an App
+# Store button. Tapping it copies this invite link; on Filo's first launch the
+# app spots it (with iOS's paste permission) and credits the sender once the new
+# member signs in. No code is ever shown or typed.
+# Nothing about the visitor is stored. INVITE_IMAGE_URL (optional, Railway) is
+# the picture Messages shows in the link preview, e.g. the Filo icon as a PNG.
+
+APP_STORE_URL = "https://apps.apple.com/app/id6800848113"
+
+_INVITE_PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Filo</title>
+<meta property="og:title" content="Filo">
+<meta property="og:description" content="Scan the tag. See if it's actually worth it.">
+<meta property="og:site_name" content="Filo">
+{og_image}
+<meta name="apple-itunes-app" content="app-id=6800848113">
+<style>
+body{{margin:0;background:#FBFAF7;color:#1A1714;font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",sans-serif;
+min-height:100vh;display:flex;align-items:center;justify-content:center;text-align:center}}
+main{{max-width:340px;padding:32px 24px}}
+.w{{font-weight:700;letter-spacing:.3em;font-size:15px}}
+h1{{font-family:ui-serif,"New York",Georgia,serif;font-weight:400;font-size:32px;line-height:1.15;margin:28px 0 10px}}
+p{{color:#6E6659;font-size:15px;line-height:1.5;margin:0 0 28px}}
+a.b{{display:block;background:#1A1714;color:#FBFAF7;text-decoration:none;border-radius:10px;padding:16px;
+font-size:13px;font-weight:700;letter-spacing:.2em}}
+.c{{margin-top:22px;font-size:12px;color:#B7AD9C}}
+.c b{{color:#6E1F2A;font-family:ui-monospace,Menlo,monospace;letter-spacing:.15em}}
+</style></head><body><main>
+<div class="w">FILO</div>
+<h1>A friend thinks you'd like Filo.</h1>
+<p>Scan the tag on any piece of clothing and see if it's actually worth it.</p>
+<a class="b" id="get" href="{store}">GET FILO</a>
+<div class="c">Open Filo after it downloads and sign in. Your friend gets the credit.</div>
+</main>
+<script>
+document.getElementById('get').addEventListener('click', function () {{
+  try {{ navigator.clipboard && navigator.clipboard.writeText(location.origin + '/i/{code}'); }} catch (e) {{}}
+}});
+</script></body></html>"""
+
+
+@app.get("/i/{code}", response_class=HTMLResponse)
+def invite_page(code: str):
+    clean = fund.clean_code(code) or "FILO"
+    image = os.environ.get("INVITE_IMAGE_URL", "").strip()
+    og_image = (f'<meta property="og:image" content="{_html.escape(image, quote=True)}">'
+                if image.startswith("https://") else "")
+    return HTMLResponse(_INVITE_PAGE.format(code=_html.escape(clean), store=APP_STORE_URL,
+                                            og_image=og_image))
 
 
 # ----------------------------------------------------------------- Shelf Intelligence
