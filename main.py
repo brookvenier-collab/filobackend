@@ -18,6 +18,7 @@ import style
 import vision
 import affiliate
 import accounts
+import fund
 
 app = FastAPI(title="Filo AI")
 
@@ -27,6 +28,8 @@ def _startup():
     # Best-effort. No DATABASE_URL just means analytics is off; scans still work.
     events.init_schema()
     accounts.init_schema()
+    fund.init_schema()
+    fund.start_daily_thread()
 
 app.add_middleware(
     CORSMiddleware,
@@ -249,7 +252,9 @@ def patch_account(update: accounts.AccountUpdate,
 
 @app.delete("/accounts/me")
 def delete_account(authorization: Optional[str] = Header(default=None)):
-    accounts.delete(_account_id(authorization))
+    account_id = _account_id(authorization)
+    fund.delete_account(account_id)
+    accounts.delete(account_id)
     # Deleting something already gone is still a success from the shopper's side.
     return {"ok": True}
 
@@ -264,6 +269,97 @@ def accounts_summary(x_filo_admin: Optional[str] = Header(default=None)):
 def accounts_list(limit: int = 500, x_filo_admin: Optional[str] = Header(default=None)):
     _require_admin(x_filo_admin)
     return {"accounts": accounts.list_all(limit)}
+
+
+# ----------------------------------------------------------------- Closet Fund
+# Points, fabric tiers, orders. See fund.py for the rules. Nothing here is ever
+# called by /analyze — the fund cannot touch a verdict or a ranking.
+
+def _fund_call(fn, *args):
+    try:
+        return fn(*args)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except RuntimeError:
+        raise HTTPException(status_code=503, detail="The Closet Fund is unavailable right now.")
+
+
+@app.get("/fund")
+def fund_summary(authorization: Optional[str] = Header(default=None)):
+    return _fund_call(fund.summary_for, _account_id(authorization))
+
+
+@app.get("/fund/orders")
+def fund_orders(authorization: Optional[str] = Header(default=None)):
+    return _fund_call(fund.orders_for, _account_id(authorization))
+
+
+@app.post("/fund/progress")
+def fund_progress(ev: fund.ProgressEvent, authorization: Optional[str] = Header(default=None)):
+    return _fund_call(fund.record_progress, _account_id(authorization), ev)
+
+
+@app.post("/fund/link")
+def fund_link(req: fund.LinkRequest, authorization: Optional[str] = Header(default=None)):
+    """The app calls this on a real tap of a shop link and opens what comes back.
+    Signed out is fine: you get a normal link and no points."""
+    account_id = accounts.check_session(authorization)
+    return _fund_call(fund.make_link, account_id, req)
+
+
+@app.post("/fund/referral")
+def fund_referral(req: fund.ReferralRequest, authorization: Optional[str] = Header(default=None)):
+    return _fund_call(fund.enter_referral, _account_id(authorization), req.code)
+
+
+@app.post("/fund/card")
+def fund_card(req: fund.CardRequest, authorization: Optional[str] = Header(default=None)):
+    return _fund_call(fund.set_card, _account_id(authorization), req.finish)
+
+
+@app.post("/fund/redeem")
+def fund_redeem(req: fund.RedeemRequest, authorization: Optional[str] = Header(default=None)):
+    account_id = _account_id(authorization)
+    acct = accounts.get(account_id) or {}
+    return _fund_call(fund.redeem, account_id, req.points, acct.get("email"))
+
+
+@app.get("/internal/fund/summary")
+def fund_admin_summary(x_filo_admin: Optional[str] = Header(default=None)):
+    _require_admin(x_filo_admin)
+    return _fund_call(fund.admin_summary)
+
+
+@app.get("/internal/fund/redemptions")
+def fund_admin_redemptions(status: str = "requested",
+                           x_filo_admin: Optional[str] = Header(default=None)):
+    _require_admin(x_filo_admin)
+    return {"redemptions": _fund_call(fund.list_redemptions, status)}
+
+
+@app.post("/internal/fund/redemptions/{rid}/{status}")
+def fund_admin_resolve(rid: int, status: str,
+                       x_filo_admin: Optional[str] = Header(default=None)):
+    _require_admin(x_filo_admin)
+    return _fund_call(fund.resolve_redemption, rid, status)
+
+
+@app.post("/internal/fund/purchase")
+def fund_admin_purchase(p: fund.ManualPurchase,
+                        x_filo_admin: Optional[str] = Header(default=None)):
+    """Add a sale by hand from the Sovrn dashboard, if the automatic sync misses one."""
+    _require_admin(x_filo_admin)
+    return {"result": _fund_call(fund.record_purchase, p.cuid, p.commission_id,
+                                 p.order_value, p.status)}
+
+
+@app.post("/internal/fund/sync")
+def fund_admin_sync(day: Optional[str] = None,
+                    x_filo_admin: Optional[str] = Header(default=None)):
+    _require_admin(x_filo_admin)
+    if day:
+        return {"sync": _fund_call(fund.sovrn_sync, day)}
+    return _fund_call(fund.run_daily)
 
 
 # ----------------------------------------------------------------- Shelf Intelligence

@@ -94,3 +94,22 @@ When off, `FiloAnalytics.log` returns immediately and no request is made.
 3. **Declare App Store privacy labels to match this document exactly.** Mismatched labels are a common Guideline 5.1.2 rejection.
 4. **Set `EVENTS_SALT` and `ADMIN_TOKEN`** on Railway before the first real user.
 5. **Decide the salt-retention question:** we currently derive salts from one long-lived secret, so historical salts are recomputable. If the threat model requires that yesterday's links be *unrecoverable even by us*, move to storing rotating salts in a table and deleting them on expiry.
+
+## Accounts and the Closet Fund (v11–v12)
+
+Signing in is optional. For members who sign in, three tables sit apart from the
+scan events above, with no key between them and the `events` table:
+
+* `accounts`: Apple's user ID, email (often a private relay), name, age band, department.
+* `fund_progress`: invite code, **counts** of scans, prices added and Closet saves,
+  and the number of distinct days scanned. Never what was scanned.
+* `fund_clicks` / `fund_ledger`: shop links a member tapped through Filo and the
+  purchases Sovrn reports for them (item title, store, order value, points).
+  Sovrn only ever sees a random click reference (`cuid`), never the account ID.
+* `fund_redemptions`: gift card requests and the email to send them to.
+
+Deleting a Filo account deletes all of these rows.
+
+App Store privacy labels for accounts + fund: Contact Info → Email, Name;
+Purchases → Purchase History; Usage Data → Product Interaction (scan counts).
+All "linked to you", used for app functionality, not tracking.

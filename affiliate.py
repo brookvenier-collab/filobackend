@@ -77,20 +77,29 @@ def subid(scanned_score=None, alt_score=None, category=None):
     return "-".join(parts) or "filo"
 
 
-def wrap(url, tag="filo"):
-    """Return the tracking URL, or the original if wrapping is off or fails."""
+def _alnum(s):
+    return "".join(ch for ch in str(s) if ch.isalnum())[:200] or "filo"
+
+
+def wrap(url, tag="filo", cuid=None):
+    """Return the tracking URL, or the original if wrapping is off or fails.
+
+    `cuid` is the Closet Fund click reference (fund.py) — a random string that
+    only Filo's own clicks table can map back to a member. Without one, the
+    non-identifying verdict tag is used. Sovrn only accepts letters and digits.
+    """
     if not url or not enabled():
         return url
     try:
         quoted = urllib.parse.quote(url, safe="")
         if NETWORK == "skimlinks":
             return (f"https://go.skimresources.com/?id={urllib.parse.quote(SKIMLINKS_ID)}"
-                    f"&xs=1&url={quoted}&sref={urllib.parse.quote(tag)}")
+                    f"&xs=1&url={quoted}&xcust={_alnum(cuid or tag)}")
         if NETWORK == "sovrn":
             return (f"https://redirect.viglink.com/?key={urllib.parse.quote(SOVRN_KEY)}"
-                    f"&u={quoted}&subId={urllib.parse.quote(tag)}")
+                    f"&u={quoted}&cuid={_alnum(cuid or tag)}")
         if NETWORK == "template":
-            return AFFILIATE_TEMPLATE.replace("{url}", quoted).replace("{subid}", urllib.parse.quote(tag))
+            return AFFILIATE_TEMPLATE.replace("{url}", quoted).replace("{subid}", _alnum(cuid or tag))
     except Exception as exc:            # noqa: BLE001
         log.info("affiliate: wrap failed (%s)", exc)
     return url

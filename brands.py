@@ -42,6 +42,8 @@ FAST_FASHION = {
 # Not an accusation of quality — we simply cannot stand behind the item.
 UNVERIFIABLE_SOURCES = {
     "amazon", "walmart", "ebay", "etsy", "poshmark", "mercari", "wayfair",
+    # Resale: one-off listings whose fibre content is whatever the seller typed.
+    "depop", "vinted", "thredup", "therealreal", "vestiaire", "grailed", "tradesy",
 }
 
 # --------------------------------------------------------------------------

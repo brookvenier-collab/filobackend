@@ -473,6 +473,166 @@ def test_v11_department_price_fast_accounts():
         check("bad apple token rejected", True, True)
 
 
+def test_v12_closet_fund():
+    """Closet Fund. The pure rules always run; the database walk-through runs
+    when FILO_TEST_DATABASE_URL points at a scratch Postgres."""
+    import os, uuid, ast, pathlib
+    import affiliate, fund, events
+    print("\n=== v12 closet fund ===")
+
+    # The fund can never reach the ranking: neither module imports the other.
+    def imports(path):
+        tree = ast.parse(pathlib.Path(path).read_text())
+        names = set()
+        for n in ast.walk(tree):
+            if isinstance(n, ast.Import):
+                names |= {a.name for a in n.names}
+            elif isinstance(n, ast.ImportFrom) and n.module:
+                names.add(n.module)
+        return names
+    check("catalog.py does not import fund", "fund" in imports("catalog.py"), False)
+    check("fund.py does not import catalog", "catalog" in imports("fund.py"), False)
+    check("fabric.py does not import fund", "fund" in imports("fabric.py"), False)
+
+    # Resale sites are never alternatives.
+    import brands
+    check("depop blocked", brands.is_blocked("Depop") if hasattr(brands, "is_blocked")
+          else any("depop" == b for b in brands.UNVERIFIABLE_SOURCES), True)
+
+    # Rates and tiers.
+    check("verdict rate", fund.rate_for("v", "cotton"), 3)
+    check("closet rate", fund.rate_for("c", "wool"), 5)
+    check("closet rate at silk", fund.rate_for("c", "silk"), 6)
+    base = {"scans": 0, "prices": 0, "saves": 0, "shared": False}
+    check("new member is cotton", fund.tier_for(base, 0), "cotton")
+    check("cotton shows steps left", fund.next_step(base, 0, "cotton")["label"], "4 steps until Wool")
+    done = {"scans": 1, "prices": 1, "saves": 3, "shared": True}
+    check("checklist done -> wool", fund.tier_for(done, 0), "wool")
+    check("25 scans, no purchase -> still wool", fund.tier_for(dict(done, scans=25), 0), "wool")
+    check("25 scans + 1 purchase -> silk", fund.tier_for(dict(done, scans=25), 1), "silk")
+    check("100 scans + 5 purchases -> cashmere", fund.tier_for(dict(done, scans=100), 5), "cashmere")
+    check("scans alone never reach silk", fund.tier_for(dict(done, scans=999), 0), "wool")
+
+    # Links.
+    check("click ref is alphanumeric", fund.new_click_ref("c").isalnum(), True)
+    check("click ref marks closet", fund.new_click_ref("c")[:2], "fc")
+    wrapped = "https://redirect.viglink.com/?key=k&u=https%3A%2F%2Fshop.example%2Fa&cuid=x"
+    check("unwraps our own redirect", fund.original_url(wrapped), "https://shop.example/a")
+    check("rejects non-web links", fund.original_url("javascript:alert(1)"), None)
+    affiliate.NETWORK, affiliate.SOVRN_KEY = "sovrn", "KEY"
+    link = affiliate.wrap("https://shop.example/a", "s54-a80-sweater")
+    check("sovrn uses cuid", "&cuid=s54a80sweater" in link, True)
+    check("fund cuid wins", "&cuid=fvABC" in affiliate.wrap("https://shop.example/a", "t", cuid="fvABC"), True)
+
+    # Sovrn statuses.
+    check("approved -> available", fund._status_from({"status": "APPROVED"}), "available")
+    check("negative revenue -> reversed", fund._status_from({"publisherNetRevenue": -2}), "reversed")
+    check("unknown -> pending", fund._status_from({}), "pending")
+
+    url = os.environ.get("FILO_TEST_DATABASE_URL")
+    if not url:
+        print("  (skipping database walk-through: FILO_TEST_DATABASE_URL not set)")
+        affiliate.NETWORK = ""
+        return
+    events.DATABASE_URL = url
+    check("schema created", fund.init_schema(), True)
+
+    a, b = str(uuid.uuid4()), str(uuid.uuid4())
+    s = fund.summary_for(a)
+    check("welcome points", s["points_available"], 100)
+    check("starts cotton", s["tier"], "cotton")
+    check("sign-in already ticked", s["checklist_done"], 1)
+    check("welcome only once", fund.summary_for(a)["points_available"], 100)
+
+    # Invite: b enters a's code, scans on 3 different days -> a gets 200, b nothing.
+    fund.enter_referral(b, s["invite_code"])
+    try:
+        fund.enter_referral(a, s["invite_code"])
+        check("own code rejected", False, True)
+    except ValueError:
+        check("own code rejected", True, True)
+    for back in (2, 1):
+        fund.record_progress(b, fund.ProgressEvent(event="scan"))
+        with fund._Tx() as cur:     # pretend the scan was on an earlier day
+            cur.execute("UPDATE fund_progress SET last_scan_day=CURRENT_DATE-%s WHERE account_id=%s",
+                        (back, b))
+    check("not yet after 2 days", fund.summary_for(a)["points_available"], 100)
+    fund.record_progress(b, fund.ProgressEvent(event="scan"))
+    check("referrer paid after 3 days", fund.summary_for(a)["points_available"], 300)
+    check("invited friend gets only welcome", fund.summary_for(b)["points_available"], 100)
+    fund.record_progress(b, fund.ProgressEvent(event="scan"))
+    check("referral paid once", fund.summary_for(a)["points_available"], 300)
+
+    # Checklist -> Wool.
+    for ev in ("scan", "price", "share"):
+        fund.record_progress(a, fund.ProgressEvent(event=ev))
+    fund.record_progress(a, fund.ProgressEvent(event="save", count=3))
+    check("a reaches wool", fund.summary_for(a)["tier"], "wool")
+
+    # Tap -> purchase. Purchase points off: order shows, 0 points.
+    os.environ.pop("FUND_PURCHASE_POINTS", None)
+    r = fund.make_link(a, fund.LinkRequest(url=wrapped, source="c", title="Wool coat",
+                                           store="Maker", price=300))
+    check("tap is tracked", r["tracked"], True)
+    ref = r["url"].split("cuid=")[1]
+    check("cuid is our ref", ref.startswith("fc"), True)
+    check("account id never sent to sovrn", a.replace("-", "") in r["url"] or a in r["url"], False)
+    check("off: purchase recorded", fund.record_purchase(ref, "C1", 300.0, "pending"), "added")
+    o = fund.orders_for(a)["orders"]
+    check("order appears", o[0]["title"], "Wool coat")
+    check("off: 0 points", o[0]["points"], 0)
+
+    # Points on: 5 per $1 from the Closet.
+    os.environ["FUND_PURCHASE_POINTS"] = "on"
+    r = fund.make_link(a, fund.LinkRequest(url="https://shop.example/b", source="c", title="Sweater"))
+    ref2 = r["url"].split("cuid=")[1]
+    fund.record_purchase(ref2, "C2", 120.0, "pending")
+    s = fund.summary_for(a)
+    check("pending 600", s["points_pending"], 600)
+    check("available unchanged while pending", s["points_available"], 300)
+    fund.record_purchase(ref2, "C2", 120.0, "available")
+    check("approved -> available", fund.summary_for(a)["points_available"], 900)
+    fund.record_purchase(ref2, "C2", 120.0, "reversed")
+    check("return reverses", fund.summary_for(a)["points_available"], 300)
+    check("reversed stays reversed", fund.record_purchase(ref2, "C2", 120.0, "available"), "unchanged")
+    check("unknown cuid ignored", fund.record_purchase("fvNOPE", "C3", 50.0, "pending"), "no-click")
+    check("verdict-tag cuid ignored", fund.record_purchase("s54a80sweater", "C4", 50.0, "pending"), "not-ours")
+
+    # Redeem.
+    try:
+        fund.redeem(a, 1000, None)
+        check("can't redeem without points", False, True)
+    except ValueError:
+        check("can't redeem without points", True, True)
+    r = fund.make_link(a, fund.LinkRequest(url="https://shop.example/c", source="v"))
+    fund.record_purchase(r["url"].split("cuid=")[1], "C5", 250.0, "available")  # 750 pts
+    check("balance 1050", fund.summary_for(a)["points_available"], 1050)
+    rid = fund.redeem(a, 1000, "x@privaterelay.appleid.com")["redemption_id"]
+    check("redeemed", fund.summary_for(a)["points_available"], 50)
+    check("admin sees request", len(fund.list_redemptions()), 1)
+    fund.resolve_redemption(rid, "cancelled")
+    check("cancel refunds", fund.summary_for(a)["points_available"], 1050)
+
+    # Card finish.
+    check("wool can pick cotton", fund.set_card(a, "cotton")["card_finish"], "cotton")
+    try:
+        fund.set_card(a, "cashmere")
+        check("locked finish refused", False, True)
+    except ValueError:
+        check("locked finish refused", True, True)
+
+    # Delete account: everything goes.
+    fund.delete_account(a)
+    with fund._Tx() as cur:
+        cur.execute("SELECT COUNT(*) FROM fund_ledger WHERE account_id=%s", (a,))
+        check("ledger deleted", cur.fetchone()[0], 0)
+        cur.execute("SELECT referred_by FROM fund_progress WHERE account_id=%s", (b,))
+        check("invite link cleared", cur.fetchone()[0], None)
+    check("admin summary works", "members" in fund.admin_summary(), True)
+    os.environ.pop("FUND_PURCHASE_POINTS", None)
+    affiliate.NETWORK = ""
+
+
 if __name__ == "__main__":
     test_parser()
     test_scoring()
@@ -486,6 +646,7 @@ if __name__ == "__main__":
     test_leather_and_garment_type()
     test_no_price_still_has_a_range()
     test_v11_department_price_fast_accounts()
+    test_v12_closet_fund()
     print()
     if FAILS:
         print(f"{len(FAILS)} FAILURES")
