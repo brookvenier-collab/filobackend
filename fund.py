@@ -73,7 +73,10 @@ REFERRAL_POINTS = 200
 REFERRAL_SCAN_DAYS = 3          # friend must scan on this many different days…
 REFERRAL_WINDOW_DAYS = 30       # …within this many days of joining
 REFERRAL_CODE_WINDOW_DAYS = 14  # a new member can enter an invite code this long
-MAX_REFERRALS_PER_YEAR = 25
+# No cap on how many friends someone can invite (Brooklyn, 29 Sep: grow first).
+# The app says "invite 3 friends" as a goal, but every friend keeps counting.
+# If abuse ever shows up, set FUND_REFERRAL_CAP on Railway (e.g. 50 per year).
+MAX_REFERRALS_PER_YEAR = int(os.environ.get("FUND_REFERRAL_CAP", "0") or 0)   # 0 = unlimited
 MAX_SCANS_PER_DAY = 40          # counted toward tiers; more than this is ignored
 EXPIRY_DAYS = 365
 REDEEM_OPTIONS = [(1000, 10), (2500, 25), (5000, 50)]
@@ -446,10 +449,11 @@ def _maybe_award_referral(cur, invitee_id: str):
         return
     if datetime.now(timezone.utc) - joined > timedelta(days=REFERRAL_WINDOW_DAYS):
         return
-    cur.execute("""SELECT COUNT(*) FROM fund_ledger WHERE account_id=%s AND event='referral'
-                   AND created_at > NOW() - INTERVAL '365 days'""", (referrer,))
-    if cur.fetchone()[0] >= MAX_REFERRALS_PER_YEAR:
-        return
+    if MAX_REFERRALS_PER_YEAR > 0:
+        cur.execute("""SELECT COUNT(*) FROM fund_ledger WHERE account_id=%s AND event='referral'
+                       AND created_at > NOW() - INTERVAL '365 days'""", (referrer,))
+        if cur.fetchone()[0] >= MAX_REFERRALS_PER_YEAR:
+            return
     cur.execute("SELECT 1 FROM fund_progress WHERE account_id=%s", (referrer,))
     if cur.fetchone() is None:          # referrer deleted their account
         return
