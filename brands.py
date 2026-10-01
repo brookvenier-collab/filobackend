@@ -163,8 +163,22 @@ QUALITY_MAKERS = {
     "sezane":                   {"good_at": ["knit", "blouse", "dress", "jacket", "leather"], "note": "wool knits, leather"},
     "nili lotan":               {"good_at": ["trousers", "pants", "shirt", "knit"], "note": "cotton and wool, NY-made"},
     "margaret howell":          {"good_at": ["shirt", "trousers", "knit", "coat"], "note": "British cotton, linen and wool"},
-    "cuyana":                   {"good_at": ["leather", "knit", "top", "trousers"], "note": "leather, silk, pima cotton"},
+    "cuyana":                   {"good_at": ["knit", "top", "trousers"],    "note": "silk, pima cotton, cashmere"},
 }
+
+# Roughly what each maker costs, 1 (under ~$100 a piece) to 4 (luxury). Used
+# only to pick which makers to SEARCH for a given budget — a $90 scan shouldn't
+# spend its two brand searches on labels that start at $900, because none of
+# those pieces can be shown anyway. Anyone not listed is level 1.
+PRICE_LEVEL = {'nour hammour': 4, 'acne studios': 4, 'toteme': 4, 'nili lotan': 4, 'margaret howell': 4, 'mackage': 3, 'schott': 3, 'allsaints': 3, 'anine bing': 3, 'st. agni': 3, 'loulou studio': 3, 'harris wharf london': 3, 're/done': 3, 'slvrlake': 3, '&daughter': 3, 'lisa yang': 3, 'jenni kayne': 3, 'la ligne': 3, 'doen': 3, 'posse': 3, 'deadwood': 2, 'the frankie shop': 2, 'soia & kyo': 2, 'agolde': 2, 'citizens of humanity': 2, 'still here': 2, 'babaa': 2, 'sunspel': 2, 'with nothing underneath': 2, 'faithfull the brand': 2, 'reformation': 2, 'sezane': 2, 'cuyana': 2, 'nudie jeans': 2, 'armedangels': 2, 'hessnatur': 2, 'naked & famous': 2, 'icebreaker': 2, 'christy dawn': 2, 'naadam': 1}
+
+# Makers whose listings reliably state the fibre percentages. One brand search
+# always goes to one of these, so a list never comes back empty just because the
+# day's makers don't print their composition in the listing.
+STATES_FIBRES = {"nudie jeans", "armedangels", "kuyichi", "knowledge cotton apparel",
+                 "hessnatur", "people tree", "colorful standard", "asket", "pact",
+                 "organic basics", "magiclinen", "not perfect linen", "icebreaker",
+                 "smartwool", "naadam"}
 
 # Spellings a listing might use for the same maker.
 MAKER_ALIASES = {
@@ -195,6 +209,55 @@ FIBER_UPGRADE = {
     "dress": "100% linen", "trousers": "wool", "pants": "wool",
     "jacket": "wool", "coat": "wool",
 }
+
+
+def _has_name(text, names):
+    """Whole-word match, so "ross" never matches "Rossignol" and "the row"
+    never matches "the Rowan jacket"."""
+    import re
+    t = (text or "").lower()
+    return any(re.search(r"(?<![a-z0-9])" + re.escape(n) + r"(?![a-z0-9])", t)
+               for n in names)
+
+
+# Luxury houses whose names show up on knock-offs ("Gucci Cruise leather jacket,
+# $180" from a shop nobody has heard of). Filo must never send a shopper to a
+# counterfeit, so a listing naming one of these is only kept when it is sold by
+# the house itself or by a retailer that is an authorised stockist.
+LUXURY_HOUSES = {
+    "gucci", "prada", "chanel", "dior", "louis vuitton", "balenciaga",
+    "saint laurent", "ysl", "celine", "bottega veneta", "hermes", "hermès",
+    "fendi", "versace", "burberry", "givenchy", "valentino", "loewe", "miu miu",
+    "balmain", "tom ford", "moncler", "canada goose", "the row", "khaite",
+    "max mara", "brunello cucinelli", "loro piana", "alexander mcqueen",
+    "off-white", "rick owens", "chrome hearts",
+}
+AUTHORISED_RETAILERS = {
+    "ssense", "farfetch", "net-a-porter", "net a porter", "mytheresa",
+    "matches", "nordstrom", "saks", "bloomingdale", "neiman marcus",
+    "bergdorf", "holt renfrew", "selfridges", "harrods", "luisaviaroma",
+    "24s", "moda operandi", "shopbop", "revolve", "fwrd", "harvey nichols",
+    "browns", "the outnet", "senser", "simons", "hudson's bay",
+}
+# Words that mark costume and celebrity "replica" jackets.
+REPLICA_WORDS = {"replica", "inspired", "cosplay", "costume", "celebrity",
+                 "movie", "tv series", "dua lipa", "taylor swift", "kardashian",
+                 "top gun", "yellowstone", "biker gang", "halloween"}
+
+
+def looks_like_knockoff(source, title):
+    """True when a listing names a luxury house but isn't sold by that house or
+    an authorised retailer, or reads like a costume/celebrity replica."""
+    t = (title or "").lower()
+    s = (source or "").lower()
+    if _has_name(t, REPLICA_WORDS):
+        return True
+    for house in LUXURY_HOUSES:
+        if _has_name(t, {house}):
+            if house in s or any(r in s for r in AUTHORISED_RETAILERS):
+                return False
+            return True
+    return False
 
 
 def is_blocked(source):
@@ -233,8 +296,7 @@ def is_department_store(source):
     """Mass department stores and off-price chains. See DEPARTMENT_STORES."""
     if not source:
         return False
-    s = source.lower()
-    return any(name in s for name in DEPARTMENT_STORES)
+    return _has_name(source, DEPARTMENT_STORES)
 
 
 def is_mainstream(source):
@@ -276,24 +338,53 @@ def display_name(maker):
     return special.get(maker, " ".join(w.capitalize() for w in maker.split()))
 
 
-def makers_for(category):
-    """Brands worth searching by name for this kind of garment."""
+def _levels_for(budget_ratio):
+    """Which price levels fit, given the budget relative to a typical price for
+    this kind of piece (1.0 = typical; None = unknown, treated as typical)."""
+    r = 1.0 if budget_ratio is None else budget_ratio
+    if r < 0.8:
+        return {1, 2}
+    if r <= 2.0:
+        return {1, 2, 3}
+    return {2, 3, 4}
+
+
+def _rotate(names):
+    """Rotate by the day so every maker gets searched over a week, while the
+    same scan on the same day still returns the same answer."""
+    if len(names) < 2:
+        return names
+    import datetime
+    k = datetime.date.today().toordinal() % len(names)
+    return names[k:] + names[:k]
+
+
+def makers_for(category, budget_ratio=None):
+    """Brands worth searching by name for this kind of garment, at this budget.
+
+    Order: one maker whose listings state their fibres (so something verifiable
+    always comes back), then the taste makers, alternating.
+    """
     # No fallback to "the first six makers on the list". That fallback is how a
-    # jacket scan searched "nudie jeans jacket" and "armedangels jacket" and came
-    # back with knitwear: a maker who doesn't make the garment returns whatever
-    # they do make. No specialist for a category means no brand-led query.
+    # jacket scan searched "nudie jeans jacket" and came back with knitwear: a
+    # maker who doesn't make the garment returns whatever they do make. No
+    # specialist for a category means no brand-led query.
     if not category:
         return []
     c = category.lower()
+    fits = _levels_for(budget_ratio)
     found = [name for name, meta in QUALITY_MAKERS.items()
-             if any(tag in c for tag in meta["good_at"])]
-    if len(found) > 1:
-        # Rotate by the day so every maker on the list gets searched over a week,
-        # while the same scan on the same day still returns the same answer.
-        import datetime
-        k = datetime.date.today().toordinal() % len(found)
-        found = found[k:] + found[:k]
-    return found[:6]
+             if any(tag in c for tag in meta["good_at"])
+             and PRICE_LEVEL.get(name, 1) in fits]
+    stated = _rotate([m for m in found if m in STATES_FIBRES])
+    taste = _rotate([m for m in found if m not in STATES_FIBRES])
+    out = []
+    while stated or taste:
+        if stated:
+            out.append(stated.pop(0))
+        if taste:
+            out.append(taste.pop(0))
+    return out[:6]
 
 
 def fiber_upgrade_for(category):
@@ -305,7 +396,7 @@ def fiber_upgrade_for(category):
     return "100% organic cotton"
 
 
-def build_queries(category, max_queries=4, look=None, material=None):
+def build_queries(category, max_queries=4, look=None, material=None, budget_ratio=None):
     """Several angles at the same shelf, because one generic query only ever
     returns the shops with the biggest product feeds.
 
@@ -345,7 +436,8 @@ def build_queries(category, max_queries=4, look=None, material=None):
         ]
         # Two brand-led queries, so the makers known for leather actually show
         # up to be judged instead of losing to whoever has the biggest feed.
-        for maker in makers_for(noun)[:max_queries - len(queries)]:
+        # Only makers that actually work in leather ("leather" in good_at).
+        for maker in makers_for("leather", budget_ratio)[:max_queries - len(queries)]:
             queries.append(f"{maker} {noun}")
         return queries[:max_queries]
 
@@ -358,7 +450,7 @@ def build_queries(category, max_queries=4, look=None, material=None):
         f"{cat} {QUALITY_QUALIFIERS[2]}",
     ]
 
-    makers = makers_for(cat)
+    makers = makers_for(cat, budget_ratio)
     for i, maker in enumerate(makers[:max_queries - len(queries)]):
         if shape and i == 0:
             queries.append(f"{maker} {cat} {shape}")

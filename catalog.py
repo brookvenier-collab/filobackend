@@ -120,6 +120,10 @@ TYPICAL_PRICE = {
     "coat": 250,
 }
 TYPICAL_LEATHER_PRICE = 350   # leather jackets and coats sit well above cloth ones
+# A new leather jacket or coat priced under this, from a shop Filo doesn't know,
+# is almost always the thinnest grade of hide from a drop-ship jacket mill. Real,
+# but not the upgrade the shopper was promised. Makers on Filo's list are exempt.
+LEATHER_MIN_PRICE_UNKNOWN = 250
 TYPICAL_FALLBACK = 80
 
 
@@ -329,6 +333,11 @@ def evaluate(item, price=None, scanned_score=None, category=None,
     if maker is None and brands.is_department_store(source):
         return None
 
+    # 0a2. Never a knock-off. A luxury name on a listing from a shop that isn't
+    #      the house or an authorised retailer is not something Filo links to.
+    if brands.looks_like_knockoff(source, item.get("title")):
+        return None
+
     # 0b. It has to be the same kind of garment. A jacket is answered with a
     #     jacket, never a sweater, however well made the sweater is.
     if not same_garment(item.get("title"), category):
@@ -371,6 +380,12 @@ def evaluate(item, price=None, scanned_score=None, category=None,
     #     a leather-look piece, so the only honest upgrade is the real thing.
     if material in ("real leather", "faux leather") and \
             fabric.material_class(matched) != "real leather":
+        return None
+
+    # 3c. Cheap leather outerwear from an unknown shop. See LEATHER_MIN_PRICE_UNKNOWN.
+    if (maker is None and p is not None and p < LEATHER_MIN_PRICE_UNKNOWN
+            and fabric.material_class(matched) == "real leather"
+            and garment_group(item.get("title")) in ("jacket", "coat", "blazer")):
         return None
 
     # 4. Clears the bar in absolute terms.
@@ -422,7 +437,12 @@ def search_alternatives(category=None, name=None, price=None,
         # noise, and it would cost a SerpAPI credit to find that out.
         return []
 
-    queries = brands.build_queries(subject, look=look, material=material)
+    # How the shopper's budget compares with a typical price for this piece, so
+    # the brand searches go to makers they could actually buy from.
+    typical = typical_price(subject, material)
+    budget_ratio = (price / typical) if (price and typical) else None
+    queries = brands.build_queries(subject, look=look, material=material,
+                                   budget_ratio=budget_ratio)
     deadline = time.time() + SEARCH_BUDGET
 
     raw = []

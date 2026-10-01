@@ -759,6 +759,36 @@ def test_v17_taste_tier_and_department_stores():
     check("...keeping the colour", "burgundy" in q[0], True)
 
 
+def test_v18_budget_knockoffs_cheap_leather():
+    import brands
+    print("\n=== v18: makers that fit the budget, no knock-offs, no jacket mills ===")
+    check("a typical budget doesn't search luxury makers",
+          all(brands.PRICE_LEVEL.get(m, 1) <= 3 for m in brands.makers_for("leather")), True)
+    check("a big budget can", any(brands.PRICE_LEVEL.get(m, 1) == 4
+                                  for m in brands.makers_for("leather", 3.0)), True)
+    check("leather searches only name leather makers",
+          all("leather" in brands.QUALITY_MAKERS[m]["good_at"] for m in brands.makers_for("leather", 3.0)), True)
+    check("jeans always include a maker that states its fibres",
+          brands.makers_for("women's jeans")[0] in brands.STATES_FIBRES, True)
+    check("knock-off: luxury name, unknown shop",
+          brands.looks_like_knockoff("TaylorJon", "Gucci Cruise Black Leather Jacket"), True)
+    check("celebrity replica", brands.looks_like_knockoff("JacketHub", "Dua Lipa Leather Jacket"), True)
+    check("the house itself is fine", brands.looks_like_knockoff("Gucci", "Gucci Leather Jacket"), False)
+    check("an authorised retailer is fine", brands.looks_like_knockoff("SSENSE", "Prada Leather Jacket"), False)
+    check("'the Rowan jacket' is not The Row", brands.looks_like_knockoff("Shop", "The Rowan Jacket"), False)
+    check("Rossignol is not Ross", brands.is_department_store("Rossignol"), False)
+    kw = dict(scanned_score=4.0, category="women's jacket", material="real leather", assumed_price=350)
+    mill = {"title": "Women's Biker Jacket 100% Lambskin Leather", "extracted_price": 159, "source": "JacketMill"}
+    check("a $159 leather jacket from an unknown shop is dropped", catalog.evaluate(mill, **kw), None)
+    check("the same shop at $320 is kept",
+          catalog.evaluate(dict(mill, extracted_price=320), **kw) is not None, True)
+    check("a listed maker under $250 is kept",
+          catalog.evaluate({"title": "Deadwood River Jacket 100% Leather", "extracted_price": 240,
+                            "source": "Deadwood"}, **kw) is not None, True)
+    check("knock-offs never reach the list", catalog.evaluate(
+        {"title": "Gucci Cruise Jacket 100% Leather", "extracted_price": 380, "source": "TaylorJon"}, **kw), None)
+
+
 if __name__ == "__main__":
     test_parser()
     test_scoring()
@@ -777,6 +807,7 @@ if __name__ == "__main__":
     test_v14_seasonal_home()
     test_v16_colour_pick()
     test_v17_taste_tier_and_department_stores()
+    test_v18_budget_knockoffs_cheap_leather()
     print()
     if FAILS:
         print(f"{len(FAILS)} FAILURES")
