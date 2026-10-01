@@ -50,7 +50,7 @@ def test_scoring():
     for comp, want in [
         ("60% Cotton, 40% Polyester", 5.4),
         ("100% Polyester", 2.2),
-        ("100% Linen", 8.0),
+        ("100% Linen", 7.9),   # fibre-only tags top out at 7.9 (v13)
         ("Top 55% Cotton 45% Polyester", 5.2),
     ]:
         check(comp, fabric.quality_score(comp)[0], want)
@@ -331,7 +331,7 @@ def test_leather_and_garment_type():
     fake = fabric.quality_score("100% vegan leather")[0]
     real = fabric.quality_score("100% lambskin leather")[0]
     check("faux leather never scores like leather", fake < 4.5, True)
-    check("real leather scores as leather", real, 8.0)
+    check("real leather scores as leather (tag-only cap)", real, 7.9)
     check("faux suede is polyester, not leather",
           fabric.parse_composition("100% faux suede"), [("polyester", 100)])
 
@@ -632,6 +632,56 @@ def test_v12_closet_fund():
     affiliate.NETWORK = ""
 
 
+def test_v13_evidence_and_rarity():
+    import fund, seams
+    print("\n=== v13: a score only goes as high as its evidence ===")
+    a = lambda comp, c=None: fabric.analyze({"composition": comp, "construction": c})
+    check("tag-only 100% leather caps at 7.9", a("100% Leather")["score"], 7.9)
+    check("tag-only is 'Solid', not 'The real thing'", a("100% Leather")["verdict"], "Solid")
+    check("capped scan explains what's missing", a("100% Linen")["ceiling_note"] is not None, True)
+    check("poly-lined leather", a("100% Leather / Lining: 100% Polyester")["score"], 7.5)
+    check("stated grade lifts the cap to 8.4", a("Full-grain leather. Lining: 100% cupro")["score"], 8.4)
+    check("genuine leather is marked down", a("Genuine leather")["score"] < 7.5, True)
+    h = a("Full-grain leather. Lining: 100% cupro",
+          ["french_seams", "hand_finished", "quality_hardware"])
+    check("grade + 2 proofs + no faults = Heirloom", h["verdict"], "Heirloom")
+    check("a fault rules out Heirloom",
+          a("Full-grain leather. Lining: 100% cupro",
+            ["french_seams", "hand_finished", "loose_threads"])["score"] <= 8.9, True)
+    check("construction can't rescue plastic", a("100% polyester", ["french_seams"])["verdict"], "Skip it")
+    check("faults always cost", a("100% wool", ["overlocked_only"])["score"], 7.7)
+    check("unknown tokens ignored", a("100% Wool", ["made_by_angels"])["score"], 7.9)
+    check("listing words count as evidence",
+          fabric.quality_score("Shirt 100% Supima cotton, French seams, horn buttons, 240gsm",
+                               allow_bare=False)[0] > 7.9, True)
+    check("durability isn't capped", a("100% Leather")["durability"], 8.0)
+    check("Heirloom is rare: no tag-only text can reach it",
+          max(a(t)["score"] for t in ["100% cashmere", "100% merino", "full grain leather",
+                                      "100% silk mulberry 22 momme", "100% Supima cotton 280gsm"]) < 9, True)
+
+    print("\n=== v13: seam photo read is strict ===")
+    check("not a seam -> nothing", seams.sanitize({"is_seam": False,
+          "found": [{"token": "french_seams", "confidence": "high"}]}), [])
+    check("proof needs high confidence", seams.sanitize({"is_seam": True,
+          "found": [{"token": "french_seams", "confidence": "medium"}]}), [])
+    check("fault counts at medium", seams.sanitize({"is_seam": True,
+          "found": [{"token": "loose_threads", "confidence": "medium"}]}), ["loose_threads"])
+    check("off-list words dropped", seams.sanitize({"is_seam": True,
+          "found": [{"token": "luxurious", "confidence": "high"}]}), [])
+
+    print("\n=== v13: better made earns more points, and only for real scores ===")
+    check("base verdict rate", fund.rate_for("v", "bronze", 7.5), 3)
+    check("real thing +1", fund.rate_for("v", "bronze", 8.2), 4)
+    check("heirloom +2", fund.rate_for("v", "bronze", 9.3), 5)
+    check("gold closet heirloom", fund.rate_for("c", "gold", 9.3), 8)
+    url = "https://shop.example.com/coat"
+    sig = fund.sign_score(url, 9.3)
+    check("signed score verifies", fund.verified_score(url, 9.3, sig), 9.3)
+    check("edited score rejected", fund.verified_score(url, 9.9, sig), None)
+    check("signature tied to the link", fund.verified_score("https://other.example.com/x", 9.3, sig), None)
+    check("no signature, no bonus", fund.verified_score(url, 9.3, None), None)
+
+
 if __name__ == "__main__":
     test_parser()
     test_scoring()
@@ -646,6 +696,7 @@ if __name__ == "__main__":
     test_no_price_still_has_a_range()
     test_v11_department_price_fast_accounts()
     test_v12_closet_fund()
+    test_v13_evidence_and_rarity()
     print()
     if FAILS:
         print(f"{len(FAILS)} FAILURES")

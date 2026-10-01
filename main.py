@@ -4,7 +4,7 @@ Run locally:   uvicorn main:app --reload   →   http://localhost:8000/docs
 The one endpoint the app uses is POST /analyze.
 """
 import os
-from typing import Optional
+from typing import List, Optional
 from concurrent.futures import ThreadPoolExecutor
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import HTMLResponse
@@ -21,6 +21,7 @@ import vision
 import affiliate
 import accounts
 import fund
+import seams
 
 app = FastAPI(title="Filo AI")
 
@@ -61,6 +62,13 @@ class Item(BaseModel):
     # AI calls) so the app can show it the moment the tag is read. "full" (the
     # default) is everything, as before.
     mode: Optional[str] = "full"
+    # v13. What the seam photo (or the shopper) established about how it's made,
+    # as tokens from fabric.CONSTRUCTION, e.g. ["french_seams", "quality_hardware"].
+    # Unknown tokens are ignored. Without it, a tag-only scan tops out at 7.9.
+    construction: Optional[List[str]] = None
+    # v13. Optional base64 JPEG of an INSIDE seam. Read once by seams.py into
+    # construction tokens, then discarded like the garment photo.
+    seam_image: Optional[str] = None
 
 
 class AnalyzeRequest(BaseModel):
@@ -80,9 +88,19 @@ def analyze(req: AnalyzeRequest):
         "category": req.item.category,
         "price": req.item.price,
         "composition": req.item.composition,
+        "construction": (req.item.construction or [])[:12],
     }
 
+    seam_tokens = []
+    if req.item.seam_image:
+        seam_tokens = seams.read(req.item.seam_image)
+        item["construction"] = sorted(set(item["construction"]) | set(seam_tokens))
+
     result = fabric.analyze(item)
+    if req.item.seam_image:
+        # What the seam photo showed, so the app can say so — even when it was
+        # nothing ("we couldn't make out the seam — try closer, in good light").
+        result["seam_read"] = {"tokens": seam_tokens, "read": bool(seam_tokens)}
 
     score = result.get("score")
 
@@ -91,7 +109,8 @@ def analyze(req: AnalyzeRequest):
     _, matched = fabric.quality_score(item["composition"])
     group = catalog.garment_group(item.get("category"))
     if item.get("price") is not None and score is not None:
-        result["price_note"] = fabric.price_note(score, matched, item["price"], group,
+        result["price_note"] = fabric.price_note(result.get("durability", score), matched,
+                                                 item["price"], group,
                                                  result.get("material"))
         result["price_prompt"] = None
     else:
@@ -148,6 +167,7 @@ def analyze(req: AnalyzeRequest):
             name=item.get("name"),
             price=item.get("price"),
             scanned_score=score,
+            scanned_durability=result.get("durability"),
             look=look,
             material=result.get("material"),
             department=department,
@@ -176,6 +196,10 @@ def analyze(req: AnalyzeRequest):
         # only rewrites where each link points. Nothing is added, dropped or
         # reordered here, which is what keeps "no paid rankings" literally true.
         # See affiliate.py. Inert until AFFILIATE_NETWORK is configured.
+        # Sign each (url, score) BEFORE the links are rewritten, so a Closet Fund
+        # purchase bonus can only ever follow a score Filo actually gave.
+        for alt in alternatives:
+            alt["score_sig"] = fund.sign_score(alt.get("url"), alt.get("score"))
         affiliate.decorate(alternatives,
                            scanned_score=score,
                            category=item.get("category"))

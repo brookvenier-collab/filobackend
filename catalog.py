@@ -311,7 +311,8 @@ def look_match(item, look):
 
 
 def evaluate(item, price=None, scanned_score=None, category=None,
-             material=None, assumed_price=None, department=None):
+             material=None, assumed_price=None, department=None,
+             scanned_durability=None):
     """Score one search result. Returns a dict to show, or None to drop it.
 
     Pure function, no network — this is the part worth testing.
@@ -346,9 +347,15 @@ def evaluate(item, price=None, scanned_score=None, category=None,
 
     # 2. Must state its composition. allow_bare=False means the word "cotton"
     #    appearing in a product title is not evidence of anything.
-    score, matched = fabric.quality_score(_describe(item), allow_bare=False)
-    if score is None:
+    detail = fabric.quality_detail(_describe(item), allow_bare=False)
+    if detail is None:
         return None
+    score, matched = detail["score"], detail["matched"]
+    # The displayed score is capped by evidence (see fabric.py). How long a piece
+    # lasts is not — a 100% wool coat wears like wool whether or not the listing
+    # shows its seams — so cost-per-wear uses the uncapped read on both sides.
+    durability = detail["uncapped"]
+    scan_dur = scanned_durability if scanned_durability is not None else scanned_score
 
     # 3. Not mostly plastic.
     if fabric.synthetic_pct(matched) >= MAX_SYNTHETIC:
@@ -370,8 +377,8 @@ def evaluate(item, price=None, scanned_score=None, category=None,
 
     # 6. If it costs meaningfully more, it must be cheaper per wear.
     if price and p and p > price * FREE_PRICE_HEADROOM:
-        a = fabric.cost_per_wear(p, score)
-        s = fabric.cost_per_wear(price, scanned_score)
+        a = fabric.cost_per_wear(p, durability)
+        s = fabric.cost_per_wear(price, scan_dur)
         if a is None or s is None or a >= s:
             return None
 
@@ -386,13 +393,13 @@ def evaluate(item, price=None, scanned_score=None, category=None,
         "image_url": item.get("thumbnail"),
         "known_maker": brands.is_known_maker(source),
         "tier": brands.tier(source),
-        "value_note": _value_line(p, score, price, scanned_score),
+        "value_note": _value_line(p, durability, price, scan_dur),
     }
 
 
 def search_alternatives(category=None, name=None, price=None,
                         scanned_score=None, limit=4, look=None, material=None,
-                        department=None):
+                        department=None, scanned_durability=None):
     """Search several angles, keep only what we can vouch for, best first.
 
     The queries run CONCURRENTLY and under a total time budget. Sequentially
@@ -444,7 +451,8 @@ def search_alternatives(category=None, name=None, price=None,
             seen.add(link)
         result = evaluate(item, price=price, scanned_score=scanned_score,
                           category=subject, material=material,
-                          assumed_price=assumed, department=department)
+                          assumed_price=assumed, department=department,
+                          scanned_durability=scanned_durability)
         if result:
             result["match"] = look_match(item, look)
             kept.append(result)

@@ -48,6 +48,8 @@ import threading
 import urllib.parse
 import urllib.request
 import json
+import hmac
+import hashlib
 from datetime import datetime, timezone, timedelta, date
 from typing import Optional, Dict, Any, List
 
@@ -100,11 +102,58 @@ FRIENDS_GOAL = 3
 SOURCES = {"v": "verdict", "c": "closet"}
 
 
-def rate_for(source: str, tier: str) -> int:
-    """Points per $1 for a purchase from this source at this tier."""
+# Better-made earns more (Brooklyn, 1 Oct 2026). The bonus follows Filo's own
+# score of the piece — never the brand, never the price — so it can only ever
+# reward the thing Filo exists for. Kept small on purpose: every point is paid
+# out of a commission, and fashion commissions after Sovrn's share are
+# roughly 3–7% of the order. Heirloom at Gold Closet = 8 pts/$1 = 8% back is
+# the most this can ever cost; check it against real commission rates once
+# the first sales come through.
+QUALITY_BONUS = {"heirloom": 2, "real": 1, "base": 0}
+QUALITY_BAND_NAMES = {"heirloom": "Heirloom", "real": "The real thing", "base": None}
+
+
+def quality_band(score: Optional[float]) -> str:
+    if score is None:
+        return "base"
+    if score >= 9.0:
+        return "heirloom"
+    if score >= 8.0:
+        return "real"
+    return "base"
+
+
+def rate_for(source: str, tier: str, score: Optional[float] = None) -> int:
+    """Points per $1 for a purchase from this source at this tier and quality."""
     if source == "c":
-        return 6 if tier == "gold" else 5
-    return 3
+        base = 6 if tier == "gold" else 5
+    else:
+        base = 3
+    return base + QUALITY_BONUS[quality_band(score)]
+
+
+# The score that sets the bonus comes from the app, so it must be one Filo
+# itself produced. /analyze signs each alternative's (url, score); /fund/link
+# only honours a score whose signature checks out. Anything else earns the base
+# rate — a tampered request can never earn more than an honest one.
+def _sign_key() -> bytes:
+    import accounts                       # local: avoids an import cycle at startup
+    return hashlib.sha256(b"filo-score:" + accounts.SECRET).digest()
+
+
+def sign_score(url: Optional[str], score: Optional[float]) -> Optional[str]:
+    clean = original_url(url or "")
+    if not clean or score is None:
+        return None
+    msg = f"{clean}|{float(score):.1f}".encode()
+    return hmac.new(_sign_key(), msg, hashlib.sha256).hexdigest()[:32]
+
+
+def verified_score(url: Optional[str], score: Optional[float], sig: Optional[str]) -> Optional[float]:
+    want = sign_score(url, score)
+    if want and sig and hmac.compare_digest(want, sig):
+        return float(score)
+    return None
 
 
 # ------------------------------------------------------------------ schema
@@ -386,7 +435,9 @@ def summary_for(account_id: str) -> Dict[str, Any]:
                   for i, t in enumerate(TIER_ORDER)],
         "checklist": items,
         "checklist_done": sum(1 for c in items if c["done"]),
-        "rates": {"verdict": rate_for("v", tier), "closet": rate_for("c", tier)},
+        "rates": {"verdict": rate_for("v", tier), "closet": rate_for("c", tier),
+                  "real_thing_bonus": QUALITY_BONUS["real"],
+                  "heirloom_bonus": QUALITY_BONUS["heirloom"]},
         "purchase_points_on": purchase_points_on(),
         "redeem_options": [{"points": pts, "dollars": d, "available": available >= pts}
                            for pts, d in REDEEM_OPTIONS],
@@ -498,6 +549,10 @@ class LinkRequest(BaseModel):
     store: Optional[str] = Field(default=None, max_length=120)
     image: Optional[str] = Field(default=None, max_length=2000)
     price: Optional[float] = Field(default=None, ge=0, le=100000)
+    # v13: the alternative's Filo score and the signature /analyze gave it.
+    # The app stores both with a saved piece so Closet buys earn the bonus too.
+    score: Optional[float] = Field(default=None, ge=0, le=10)
+    score_sig: Optional[str] = Field(default=None, max_length=64)
 
 
 def make_link(account_id: Optional[str], req: LinkRequest) -> Dict[str, Any]:
@@ -514,7 +569,8 @@ def make_link(account_id: Optional[str], req: LinkRequest) -> Dict[str, Any]:
         with _Tx() as cur:
             p = _ensure(cur, account_id)
             tier = _tier(cur, p)
-            rate = rate_for(source, tier)
+            score = verified_score(req.url, req.score, req.score_sig)
+            rate = rate_for(source, tier, score)
             cur.execute("""INSERT INTO fund_clicks (ref, account_id, source, rate, earns, url,
                                                     title, store, image, price)
                            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
@@ -524,8 +580,11 @@ def make_link(account_id: Optional[str], req: LinkRequest) -> Dict[str, Any]:
     except Exception as exc:            # noqa: BLE001  never block a shopper from the store
         log.warning("fund: click not recorded (%s)", exc)
         return {"url": affiliate.wrap(url, "filo"), "tracked": False}
+    band = quality_band(score)
     return {"url": affiliate.wrap(url, "filo", cuid=ref), "tracked": True,
-            "points_per_dollar": rate if purchase_points_on() else 0}
+            "points_per_dollar": rate if purchase_points_on() else 0,
+            "quality_bonus": QUALITY_BONUS[band] if purchase_points_on() else 0,
+            "quality_band": QUALITY_BAND_NAMES[band]}
 
 
 # ------------------------------------------------------------------ purchases

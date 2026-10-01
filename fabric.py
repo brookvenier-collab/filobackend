@@ -286,13 +286,193 @@ def split_sections(composition):
     return " ".join(main), " ".join(support)
 
 
-def quality_score(composition, allow_bare=True):
+# ======================================================================
+# EVIDENCE — what keeps the top of the scale rare (1 Oct 2026)
+#
+# A care tag proves the fibre. It does not prove the garment: a $40 linen shirt
+# and a hand-finished one both say "100% linen". So a score can only go as high
+# as the evidence behind it:
+#
+#   fibre only (every in-store tag)          → tops out at 7.9  "Solid"
+#   + a stated grade or weight               → tops out at 8.4  "The real thing"
+#   + proof of construction (seams, etc.)    → tops out at 8.9
+#   Heirloom (9.0+) needs a grade AND two construction proofs AND no faults.
+#
+# Penalties always apply in full. Only the upside is gated on evidence.
+# Nothing here reads a brand name or a price — status is earned by the make.
+# ======================================================================
+
+CAP_FIBRE_ONLY = 7.9
+CAP_GRADE = 8.4
+CAP_CONSTRUCTION = 8.9
+
+# (pattern on the raw text, fibre it applies to, adjustment, plain-English line)
+_GRADE_RULES = [
+    (r"\bfull[\s-]*grain\b", "leather", 0.4,
+     "Full-grain leather — the strongest, most durable layer of the hide."),
+    (r"\btop[\s-]*grain\b", "leather", 0.1,
+     "Top-grain leather — sanded smooth, a step below full-grain."),
+    (r"\bgenuine[\s-]+leather\b|\bcorrected[\s-]*grain\b|\bsplit[\s-]*(?:grain|leather)\b",
+     "leather", -0.8,
+     "\u201cGenuine leather\u201d is a lower layer of the hide — real, but it "
+     "won't age like full-grain."),
+    (r"\b(?:supima|pima|egyptian|sea[\s-]+island|(?:extra[\s-]+)?long[\s-]+staple)\b",
+     "cotton", 0.4, "Long-staple cotton — smoother, stronger, and slower to pill."),
+    (r"\bsuper\s*(?:1[0-9]0|[2-9]00)'?s?\b", "wool", 0.3,
+     "A stated wool grade — finer fibre, a smoother cloth."),
+    (r"\b(?:extra[\s-]*fine|superfine|ultra[\s-]*fine)\s+merino\b", "merino", 0.2,
+     "Extra-fine merino — softer and finer than standard."),
+    (r"\bgrade[\s-]*a\b|\b[2-4][\s-]*ply\b", "cashmere", 0.3,
+     "Graded, multi-ply cashmere — denser and far slower to pill."),
+    (r"\bmulberry\b|\b(?:19|2[0-9]|3[0-9])[\s-]*momme\b", "silk", 0.3,
+     "Mulberry or heavy-weight silk — the durable kind."),
+]
+
+# Construction. Each has a token (the app or a seam photo can send it directly)
+# and, where a listing might say it in words, a pattern to find it in text.
+CONSTRUCTION = {
+    # token:            (adjust, pattern or None, line)
+    "french_seams":     (0.4, r"\bfrench[\s-]+seams?\b",
+                         "French seams — every raw edge enclosed. A couture finish."),
+    "flat_felled":      (0.4, r"\bflat[\s-]*fell(?:ed)?\b|\bfelled[\s-]+seams?\b",
+                         "Flat-felled seams — the strongest seam there is."),
+    "bound_seams":      (0.3, r"\b(?:bound|hong[\s-]+kong)[\s-]+seams?\b",
+                         "Bound seams — raw edges wrapped and finished."),
+    "hand_finished":    (0.3, r"\bhand[\s-]*(?:finished|stitched|sewn|made)\b",
+                         "Hand-finished."),
+    "dense_stitching":  (0.3, r"\b(?:1[2-9]|2[0-4])\s*(?:spi|stitches\s+per\s+inch)\b",
+                         "Dense stitching — seams that won't open up."),
+    "pattern_matched":  (0.2, r"\bpattern[\s-]*match(?:ed|ing)\b|\bmatched\s+(?:stripes|checks|plaid)\b",
+                         "Pattern matched at the seams — slow, careful cutting."),
+    "quality_hardware": (0.2, r"\b(?:ykk|riri|lampo)\b|\b(?:horn|corozo|mother[\s-]+of[\s-]+pearl)\s+buttons?\b",
+                         "Quality hardware."),
+    # Faults. Always applied in full, and any one of them rules out Heirloom.
+    "overlocked_only":  (-0.3, None, "Overlocked seams only — fast, and the first to fray."),
+    "sparse_stitching": (-0.3, None, "Loose, widely spaced stitching."),
+    "puckered_seams":   (-0.3, None, "Puckered seams — rushed sewing."),
+    "loose_threads":    (-0.4, None, "Loose threads at the seams."),
+    "glued_seams":      (-0.6, r"\b(?:glued|bonded)\s+seams?\b",
+                         "Glued seams — they peel rather than wear."),
+}
+CONSTRUCTION_BONUS_CAP = 1.0
+HEIRLOOM_MIN_PROOFS = 2
+
+_WEIGHT_GSM = re.compile(r"\b(\d{2,3})\s*(?:gsm|g/m2|g/m\u00b2|grams?\s+per\s+square\s+met(?:er|re))\b", re.I)
+_WEIGHT_OZ = re.compile(r"\b(\d{1,2}(?:\.\d)?)\s*-?\s*oz\b", re.I)
+
+
+def _grade(raw, main_matched):
+    """(adjustment, [lines]) from stated grades and fabric weight."""
+    if not main_matched:
+        return 0.0, []
+    text = (raw or "").lower()
+    top = max(main_matched, key=lambda m: m[1])
+    top_key, top_pct = top[0], top[1]
+    total = sum(m[1] for m in main_matched) or 100
+    adj, lines = 0.0, []
+    if top_pct / total >= 0.5:
+        hits = [(a, line) for pat, fib, a, line in _GRADE_RULES
+                if (fib == top_key or (fib == "wool" and top_key == "merino"))
+                and re.search(pat, text)]
+        if hits:
+            # A fault wins over a flattering word next to it.
+            a, line = min(hits) if any(h[0] < 0 for h in hits) else max(hits)
+            adj += a
+            lines.append(line)
+    m = _WEIGHT_GSM.search(text)
+    if m:
+        gsm = int(m.group(1))
+        if gsm >= 220:
+            adj += 0.3; lines.append(f"{gsm}gsm — a substantial, hard-wearing weight.")
+        elif gsm <= 140:
+            adj -= 0.4; lines.append(f"{gsm}gsm — thin, and it will show wear sooner.")
+    else:
+        m = _WEIGHT_OZ.search(text)
+        if m and "denim" in text:
+            oz = float(m.group(1))
+            if oz >= 13:
+                adj += 0.3; lines.append(f"{oz:g}oz denim — heavyweight, built to break in.")
+            elif oz <= 10:
+                adj -= 0.2; lines.append(f"{oz:g}oz denim — lightweight, it wears through faster.")
+    return adj, lines
+
+
+def _construction(raw, tokens):
+    """(proofs, faults) as lists of (token, adjust, line), from text and tokens."""
+    found = {t for t in (tokens or []) if t in CONSTRUCTION}
+    text = (raw or "").lower()
+    for token, (_, pat, _) in CONSTRUCTION.items():
+        if pat and re.search(pat, text):
+            found.add(token)
+    proofs, faults = [], []
+    for token in sorted(found):
+        a, _, line = CONSTRUCTION[token]
+        (proofs if a > 0 else faults).append((token, a, line))
+    return proofs, faults
+
+
+def quality_detail(composition, allow_bare=True, construction=None):
+    """The full read: score plus the evidence behind it and the ceiling it hit.
+
+    Returns None when there is no fibre to score."""
     main_text, support_text = split_sections(composition)
     if support_text and parse_composition(main_text, allow_bare=allow_bare):
-        score, matched = _score_pairs(parse_composition(main_text, allow_bare=allow_bare))
-        score = max(0.0, min(10.0, round(score + support_adjustment(support_text, allow_bare), 1)))
-        return score, matched
-    return _score_pairs(parse_composition(composition, allow_bare=allow_bare))
+        base, matched = _score_pairs(parse_composition(main_text, allow_bare=allow_bare))
+        lining = support_adjustment(support_text, allow_bare)
+    else:
+        pairs = parse_composition(composition, allow_bare=allow_bare)
+        if not pairs:
+            return None
+        base, matched = _score_pairs(pairs)
+        lining = 0.0
+
+    grade_adj, grade_lines = _grade(composition, matched)
+    proofs, faults = _construction(composition, construction)
+    build_adj = min(sum(a for _, a, _ in proofs), CONSTRUCTION_BONUS_CAP) \
+        + sum(a for _, a, _ in faults)
+
+    raw = base + lining + grade_adj + build_adj
+    has_grade = any(l for l in grade_lines) and grade_adj > 0
+    if proofs and not faults and has_grade and len(proofs) >= HEIRLOOM_MIN_PROOFS:
+        ceiling = 10.0
+    elif proofs:
+        ceiling = CAP_CONSTRUCTION
+    elif has_grade:
+        ceiling = CAP_GRADE
+    else:
+        ceiling = CAP_FIBRE_ONLY
+    score = max(0.0, min(ceiling, 10.0, round(raw, 1)))
+    return {
+        "score": score,
+        "matched": matched,
+        "uncapped": max(0.0, min(10.0, round(raw, 1))),
+        "ceiling": ceiling,
+        "capped": round(raw, 1) > ceiling,
+        "grade_lines": grade_lines,
+        "construction": [t for t, _, _ in proofs + faults],
+        "construction_lines": [l for _, _, l in proofs + faults],
+    }
+
+
+def quality_score(composition, allow_bare=True, construction=None):
+    d = quality_detail(composition, allow_bare=allow_bare, construction=construction)
+    if d is None:
+        return None, []
+    return d["score"], d["matched"]
+
+
+def ceiling_note(detail):
+    """What would move a capped score higher — said plainly, never as a sales line."""
+    if not detail or not detail["capped"]:
+        return None
+    if detail["ceiling"] == CAP_FIBRE_ONLY:
+        return ("The fabric is right, but a tag can't show how it's sewn. "
+                "Add a photo of an inside seam to see if it goes higher.")
+    if detail["ceiling"] == CAP_GRADE:
+        return ("Top-grade material. Show us an inside seam to see if the "
+                "making matches it.")
+    return ("Close to Heirloom — that takes a stated grade, two signs of careful "
+            "making and no faults.")
 
 
 def _score_pairs(pairs):
@@ -314,6 +494,7 @@ def _score_pairs(pairs):
 
 
 def verdict(score):
+    if score >= 9:   return "Heirloom"
     if score >= 8:   return "The real thing"
     if score >= 6:   return "Solid"
     if score >= 4.5: return "It depends"
@@ -468,6 +649,15 @@ def price_note(score, matched, price, group, material=None):
     return None
 
 
+def _with_evidence(out, detail):
+    """Grade and construction lines go straight after the fibre line."""
+    extra = (detail or {}).get("grade_lines", []) + (detail or {}).get("construction_lines", [])
+    if not extra:
+        return out
+    out = list(out)
+    return out[:1] + extra[:3] + out[1:]
+
+
 def _with_lining(out, composition):
     note = lining_note(composition)
     if note:
@@ -483,7 +673,8 @@ def analyze(item):
     """The one function the app calls (via /analyze). Returns the full verdict."""
     composition = item.get("composition", "")
     price = item.get("price")
-    score, matched = quality_score(composition)
+    detail = quality_detail(composition, construction=item.get("construction"))
+    score, matched = (detail["score"], detail["matched"]) if detail else (None, [])
 
     if score is None:
         return {
@@ -498,7 +689,8 @@ def analyze(item):
         }
 
     material = material_class(matched)
-    wears = wear_estimate(score)
+    durability = detail["uncapped"]
+    wears = wear_estimate(durability)
     flags = care_flags(matched)
     # Washes are the wrong unit for leather. It fails by cracking, not pilling.
     if material == "faux leather":
@@ -512,10 +704,21 @@ def analyze(item):
         "score": score,
         "material": material,
         "verdict": verdict(score),
-        "reasons": _with_lining(reasons(score, matched, price), composition),
+        "reasons": _with_evidence(_with_lining(reasons(score, matched, price), composition),
+                                  detail),
+        "ceiling_note": ceiling_note(detail),
+        # How long it lasts, from the fibre and make alone — never capped by
+        # evidence. Used for wears and cost-per-wear; the headline uses "score".
+        "durability": durability,
+        "evidence": {
+            "ceiling": detail["ceiling"],
+            "capped": detail["capped"],
+            "grade": detail["grade_lines"],
+            "construction": detail["construction"],
+        },
         "wears": wears,
         "care_flags": flags,
-        "value_note": value_note(score, price),
+        "value_note": value_note(durability, price),
         "alternatives": [],  # populated later via SerpAPI + look-matching
         "alternatives_note": "Better-made alternatives turn on once product search is connected.",
     }
