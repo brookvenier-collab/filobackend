@@ -705,6 +705,24 @@ def test_v14_seasonal_home():
         del os.environ[k]
 
 
+def test_v16_colour_pick():
+    import brands, vision
+    print("\n=== v16: the shopper's colour joins the search, never filters ===")
+    qs = brands.build_queries("women's jacket", look=["black"])
+    check("colour lands in a query", any("black" in q for q in qs), True)
+    good = {"title": "Wool Jacket 100% Wool", "extracted_price": 200, "source": "Maker"}
+    check("a navy pick still shows a better-made piece with no colour in its title",
+          catalog.evaluate(good, price=180, scanned_score=5.0, category="jacket") is not None, True)
+    check("matching colour ranks higher", catalog.look_match(
+        {"title": "Black Wool Jacket 100% Wool"}, ["black"]) > catalog.look_match(good, ["black"]), True)
+    import main
+    check("leather is an allowed pick", "leather" in main.EXTRA_LOOK_PICKS, True)
+    check("leather lands in a query",
+          any("leather" in q for q in brands.build_queries("women's jacket", look=["leather"])), True)
+    check("app colours are all in the vocabulary",
+          {"black","white","cream","grey","navy","blue","brown","tan","green","red","burgundy","pink"} <= vision.COLOR, True)
+
+
 if __name__ == "__main__":
     test_parser()
     test_scoring()
@@ -721,6 +739,7 @@ if __name__ == "__main__":
     test_v12_closet_fund()
     test_v13_evidence_and_rarity()
     test_v14_seasonal_home()
+    test_v16_colour_pick()
     print()
     if FAILS:
         print(f"{len(FAILS)} FAILURES")

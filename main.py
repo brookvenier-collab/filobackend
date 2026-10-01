@@ -72,6 +72,13 @@ class Item(BaseModel):
     # v13. Optional base64 JPEG of an INSIDE seam. Read once by seams.py into
     # construction tokens, then discarded like the garment photo.
     seam_image: Optional[str] = None
+    # v16. The colour the shopper picked on the verdict screen ("black", "navy").
+    # One of vision.COLOR; anything else is ignored. Like every look word it
+    # widens the search and ranks the results — it never filters a piece out.
+    color: Optional[str] = None
+
+
+EXTRA_LOOK_PICKS = {"leather"}
 
 
 class AnalyzeRequest(BaseModel):
@@ -160,6 +167,15 @@ def analyze(req: AnalyzeRequest):
             if seen:
                 result["look"] = seen
                 look = vision.descriptors(seen)
+
+        # The shopper's own colour pick beats the photo's guess, and goes first
+        # so it always makes it into the search (queries use the first 3 words).
+        # "leather" isn't a colour, but shoppers pick it like one ("a leather
+        # jacket"), so the colour row offers it and it joins the search the same way.
+        chosen = (req.item.color or "").strip().lower()
+        if chosen in vision.COLOR or chosen in EXTRA_LOOK_PICKS:
+            look = [chosen] + [w for w in look if w not in vision.COLOR]
+            result["color"] = chosen
 
         # catalog builds its own multi-angle search (fiber, certification, and the
         # names of makers known for cloth) because one generic query only ever
