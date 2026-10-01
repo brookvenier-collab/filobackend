@@ -457,7 +457,8 @@ def test_v11_department_price_fast_accounts():
                                                              price=75, category="t-shirt", mode="score")))
     check("price -> price note", (priced["price_note"] or "").startswith("$75"), True)
     check("price -> no prompt", priced["price_prompt"], None)
-    check("/config shape", sorted(main.config().keys()), ["home_image_alt", "home_image_url"])
+    # v14 added season fields; the two 1.1 keys must stay so older builds keep working.
+    check("/config keeps 1.1 keys", {"home_image_alt", "home_image_url"} <= set(main.config()), True)
 
     print("\n=== v11: account sessions ===")
     import accounts, uuid
@@ -682,6 +683,28 @@ def test_v13_evidence_and_rarity():
     check("no signature, no bonus", fund.verified_score(url, 9.3, None), None)
 
 
+def test_v14_seasonal_home():
+    import os, main
+    print("\n=== v14: the home card follows the season ===")
+    for k in [k for k in os.environ if k.startswith("HOME_")]:
+        del os.environ[k]
+    check("October is coat season", main.home_config(10)["home_eyebrow"], "COAT SEASON")
+    check("fall copy", main.home_config(10)["home_title"], "Check the lining.")
+    check("January is winter", main.home_config(1)["season"], "winter")
+    check("July is summer", main.home_config(7)["season"], "summer")
+    check("no photo set -> app keeps its bundled one", main.home_config(10)["home_image_url"], None)
+    os.environ["HOME_IMAGE_URL_FALL"] = "https://x.example/fall.jpg"
+    os.environ["HOME_IMAGE_URL_SUMMER"] = "https://x.example/summer.jpg"
+    check("fall photo in fall", main.home_config(10)["home_image_url"], "https://x.example/fall.jpg")
+    check("summer photo in summer", main.home_config(7)["home_image_url"], "https://x.example/summer.jpg")
+    os.environ["HOME_SEASON"] = "summer"
+    check("pinned season wins", main.home_config(10)["home_eyebrow"], "LINEN SEASON")
+    os.environ["HOME_TITLE"] = "Launch week."
+    check("one-off override beats the season", main.home_config(10)["home_title"], "Launch week.")
+    for k in [k for k in os.environ if k.startswith("HOME_")]:
+        del os.environ[k]
+
+
 if __name__ == "__main__":
     test_parser()
     test_scoring()
@@ -697,6 +720,7 @@ if __name__ == "__main__":
     test_v11_department_price_fast_accounts()
     test_v12_closet_fund()
     test_v13_evidence_and_rarity()
+    test_v14_seasonal_home()
     print()
     if FAILS:
         print(f"{len(FAILS)} FAILURES")

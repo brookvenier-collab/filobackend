@@ -4,6 +4,7 @@ Run locally:   uvicorn main:app --reload   →   http://localhost:8000/docs
 The one endpoint the app uses is POST /analyze.
 """
 import os
+from datetime import datetime, timezone
 from typing import List, Optional
 from concurrent.futures import ThreadPoolExecutor
 from fastapi import FastAPI, Header, HTTPException
@@ -222,18 +223,61 @@ def analyze(req: AnalyzeRequest):
 
 
 # ----------------------------------------------------------------- app config
-# Things Brooklyn changes without shipping an app update. Set on Railway:
-#   HOME_IMAGE_URL   public https link to the home screen photo
-#   HOME_IMAGE_ALT   one short line describing it (for VoiceOver)
-# Changing a variable redeploys in about a minute; the app picks up the new image
-# the next time it's opened.
+# Things Brooklyn changes without shipping an app update.
+#
+# THE SEASON (v14). The home card follows the season on its own: Filo works out
+# which season it is from the date and sends that season's photo and copy.
+# Set the four photos once and it rotates for the rest of the year.
+#
+#   HOME_IMAGE_URL_FALL / _WINTER / _SPRING / _SUMMER   public https photo links
+#   HOME_IMAGE_ALT_FALL / _WINTER / _SPRING / _SUMMER   one line each, for VoiceOver
+#   HOME_EYEBROW_<SEASON>, HOME_TITLE_<SEASON>          optional: replace the copy
+#
+# Overrides for a one-off (a launch, a holiday) — these beat the season:
+#   HOME_IMAGE_URL, HOME_IMAGE_ALT, HOME_EYEBROW, HOME_TITLE
+#   HOME_SEASON = fall | winter | spring | summer   pin a season by hand
+#
+# Seasons are northern-hemisphere retail months: Fall Sep–Nov, Winter Dec–Feb,
+# Spring Mar–May, Summer Jun–Aug. Changing a variable redeploys in about a
+# minute; phones pick it up the next time Filo is opened.
+
+SEASON_COPY = {
+    "fall":   ("COAT SEASON",  "Check the lining."),
+    "winter": ("KNIT SEASON",  "Wool, not acrylic."),
+    "spring": ("DENIM SEASON", "Heavier is better."),
+    "summer": ("LINEN SEASON", "Let it breathe."),
+}
+
+
+def season_for(month: int) -> str:
+    if month in (9, 10, 11):
+        return "fall"
+    if month in (12, 1, 2):
+        return "winter"
+    if month in (3, 4, 5):
+        return "spring"
+    return "summer"
+
+
+def home_config(month: Optional[int] = None) -> dict:
+    env = os.environ.get
+    pinned = (env("HOME_SEASON") or "").strip().lower()
+    season = pinned if pinned in SEASON_COPY else \
+        season_for(month or datetime.now(timezone.utc).month)
+    S = season.upper()
+    eyebrow, title = SEASON_COPY[season]
+    return {
+        "season": season,
+        "home_image_url": env("HOME_IMAGE_URL") or env(f"HOME_IMAGE_URL_{S}") or None,
+        "home_image_alt": env("HOME_IMAGE_ALT") or env(f"HOME_IMAGE_ALT_{S}") or None,
+        "home_eyebrow": env("HOME_EYEBROW") or env(f"HOME_EYEBROW_{S}") or eyebrow,
+        "home_title": env("HOME_TITLE") or env(f"HOME_TITLE_{S}") or title,
+    }
+
 
 @app.get("/config")
 def config():
-    return {
-        "home_image_url": os.environ.get("HOME_IMAGE_URL") or None,
-        "home_image_alt": os.environ.get("HOME_IMAGE_ALT") or None,
-    }
+    return home_config()
 
 
 # ----------------------------------------------------------------- accounts
