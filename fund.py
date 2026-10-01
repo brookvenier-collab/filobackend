@@ -709,8 +709,11 @@ def sovrn_sync(day: Optional[str] = None) -> Dict[str, Any]:
 def run_daily():
     """Everything the daily job does. Each part is independent."""
     out = {}
+    # The privacy policy promises Quality Record entries are deleted after 400
+    # days. This is what keeps that promise true — do not remove it.
     for name, fn in (("sync", sovrn_sync), ("auto_approve", auto_approve),
-                     ("expired", expire_inactive)):
+                     ("expired", expire_inactive),
+                     ("purged_events", lambda: events.purge_older_than(400))):
         try:
             out[name] = fn()
         except Exception as exc:        # noqa: BLE001

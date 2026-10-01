@@ -78,6 +78,23 @@ MAINSTREAM = {
 
 
 # --------------------------------------------------------------------------
+# Mass department stores and off-price chains (Brooklyn, 1 Oct 2026: "better
+# made options should be cool brands, not just Macy's"). They sell thousands of
+# house-label and licensed pieces that pass a fibre test and feel like nothing.
+# A listing from one of these is only shown when the PIECE is by a maker on
+# Filo's list (a Schott jacket sold at Macy's is still a Schott jacket).
+# Anything else from them is dropped.
+# --------------------------------------------------------------------------
+DEPARTMENT_STORES = {
+    "macy's", "macys", "kohl's", "kohls", "dillard", "jcpenney", "jc penney",
+    "belk", "target", "costco", "sam's club", "qvc", "hsn", "zulily",
+    "nordstrom rack", "saks off 5th", "tj maxx", "tjmaxx", "marshalls",
+    "burlington", "ross", "winners", "lord & taylor", "boscov", "von maur",
+    "walmart", "overstock", "shop premium outlets",
+}
+
+
+# --------------------------------------------------------------------------
 # Makers worth surfacing, and what they're actually good at. `queries` are the
 # search terms most likely to return that brand's better pieces.
 # --------------------------------------------------------------------------
@@ -102,6 +119,58 @@ QUALITY_MAKERS = {
     "magiclinen":               {"good_at": ["linen", "dress", "shirt"],     "note": "OEKO-TEX linen"},
     "icebreaker":               {"good_at": ["wool", "knit", "base layer"],  "note": "merino wool"},
     "smartwool":                {"good_at": ["wool", "socks", "base layer"], "note": "merino wool"},
+
+    # ---- The taste tier (added 1 Oct 2026) -------------------------------
+    # Labels people actually want to wear that are also known for the cloth.
+    # Being on this list changes WHERE Filo looks and breaks ties. It never
+    # changes a score: every piece still has to state its fibres and clear the
+    # same quality floor, or it isn't shown. Edit freely — this is Brooklyn's
+    # list to own.
+    # Leather and outerwear
+    "nour hammour":             {"good_at": ["leather", "jacket", "coat"],   "note": "Paris-made leather jackets"},
+    "deadwood":                 {"good_at": ["leather", "jacket"],           "note": "recycled real leather"},
+    "schott":                   {"good_at": ["leather", "jacket"],           "note": "US-made leather jackets since 1913"},
+    "acne studios":             {"good_at": ["leather", "jacket", "jeans", "denim", "knit"], "note": "leather, wool and denim"},
+    "allsaints":                {"good_at": ["leather", "jacket"],           "note": "real leather biker jackets"},
+    "the frankie shop":         {"good_at": ["jacket", "blazer", "coat", "trousers", "shirt"], "note": "tailoring in wool and cotton"},
+    "anine bing":               {"good_at": ["leather", "jacket", "blazer", "knit", "tee"], "note": "leather, wool blazers, cashmere"},
+    "toteme":                   {"good_at": ["coat", "jacket", "knit", "shirt", "jeans", "denim"], "note": "wool coats, organic cotton denim"},
+    "harris wharf london":      {"good_at": ["coat", "jacket", "blazer"],    "note": "pressed virgin wool coats"},
+    "mackage":                  {"good_at": ["coat", "leather", "jacket"],   "note": "Canadian wool and leather outerwear"},
+    "soia & kyo":               {"good_at": ["coat", "jacket"],              "note": "Canadian wool coats"},
+    "st. agni":                 {"good_at": ["leather", "jacket", "dress", "trousers", "knit"], "note": "leather, linen and wool"},
+    "loulou studio":            {"good_at": ["knit", "sweater", "coat", "jacket", "blazer"], "note": "wool and cashmere"},
+    # Denim
+    "agolde":                   {"good_at": ["jeans", "denim", "leather"],   "note": "organic and regenerative cotton denim"},
+    "citizens of humanity":     {"good_at": ["jeans", "denim"],              "note": "LA-made denim"},
+    "re/done":                  {"good_at": ["jeans", "denim", "tee"],       "note": "reworked and 100% cotton denim"},
+    "still here":               {"good_at": ["jeans", "denim"],              "note": "100% cotton denim, NY"},
+    "slvrlake":                 {"good_at": ["jeans", "denim"],              "note": "rigid 100% cotton denim"},
+    # Knitwear
+    "babaa":                    {"good_at": ["knit", "sweater", "cardigan"], "note": "Spanish wool and cotton knits"},
+    "&daughter":                {"good_at": ["knit", "sweater", "cardigan"], "note": "Irish and Scottish wool knits"},
+    "lisa yang":                {"good_at": ["knit", "sweater", "cardigan"], "note": "100% cashmere"},
+    "naadam":                   {"good_at": ["knit", "sweater", "cardigan"], "note": "Mongolian cashmere"},
+    "jenni kayne":              {"good_at": ["knit", "sweater", "cardigan", "coat"], "note": "cashmere, alpaca, wool"},
+    "la ligne":                 {"good_at": ["knit", "sweater", "top"],      "note": "wool and cashmere knits"},
+    # Shirts, tees, dresses, trousers
+    "sunspel":                  {"good_at": ["tee", "t-shirt", "top", "knit"], "note": "long-staple cotton tees"},
+    "with nothing underneath":  {"good_at": ["shirt", "blouse"],             "note": "cotton and linen shirts"},
+    "doen":                     {"good_at": ["dress", "blouse", "top", "skirt"], "note": "organic cotton and silk"},
+    "faithfull the brand":      {"good_at": ["dress", "skirt", "top"],       "note": "linen dresses"},
+    "posse":                    {"good_at": ["dress", "skirt", "top", "linen"], "note": "linen"},
+    "reformation":              {"good_at": ["dress", "leather", "jeans", "skirt", "top"], "note": "linen, silk, leather"},
+    "sezane":                   {"good_at": ["knit", "blouse", "dress", "jacket", "leather"], "note": "wool knits, leather"},
+    "nili lotan":               {"good_at": ["trousers", "pants", "shirt", "knit"], "note": "cotton and wool, NY-made"},
+    "margaret howell":          {"good_at": ["shirt", "trousers", "knit", "coat"], "note": "British cotton, linen and wool"},
+    "cuyana":                   {"good_at": ["leather", "knit", "top", "trousers"], "note": "leather, silk, pima cotton"},
+}
+
+# Spellings a listing might use for the same maker.
+MAKER_ALIASES = {
+    "sézane": "sezane", "dôen": "doen", "babaà": "babaa", "totême": "toteme",
+    "st agni": "st. agni", "redone": "re/done", "and daughter": "&daughter",
+    "all saints": "allsaints", "schott nyc": "schott",
 }
 
 
@@ -136,12 +205,36 @@ def is_blocked(source):
     return any(bad in s for bad in FAST_FASHION) or any(bad in s for bad in UNVERIFIABLE_SOURCES)
 
 
-def is_known_maker(source):
-    """True if this is a maker Filo already rates for fabric."""
+def maker_in(*texts):
+    """The maker on Filo's list named in any of these strings (a retailer name,
+    a listing title), or None. Whole-word matching, so "posse" never matches
+    "possession" and "schott" never matches a longer word."""
+    import re
+    for text in texts:
+        t = (text or "").lower()
+        if not t:
+            continue
+        for alias, canonical in MAKER_ALIASES.items():
+            if alias in t:
+                t = t.replace(alias, canonical)
+        for maker in sorted(QUALITY_MAKERS, key=len, reverse=True):
+            if re.search(r"(?<![a-z0-9])" + re.escape(maker) + r"(?![a-z0-9])", t):
+                return maker
+    return None
+
+
+def is_known_maker(source, title=None):
+    """True if this is a maker Filo already rates — by the shop it's sold in
+    or by the brand named in the listing."""
+    return maker_in(source, title) is not None
+
+
+def is_department_store(source):
+    """Mass department stores and off-price chains. See DEPARTMENT_STORES."""
     if not source:
         return False
     s = source.lower()
-    return any(maker in s for maker in QUALITY_MAKERS)
+    return any(name in s for name in DEPARTMENT_STORES)
 
 
 def is_mainstream(source):
@@ -161,15 +254,26 @@ TIER_MAINSTREAM = 1   # mall and mass-market
 TIER_BLOCKED = 0      # never returned at all
 
 
-def tier(source):
-    """Which ranking tier a retailer sits in."""
+def tier(source, title=None):
+    """Which ranking tier a listing sits in. The maker named in the title counts:
+    an Agolde jean sold at a multi-brand shop is an Agolde jean."""
     if is_blocked(source):
         return TIER_BLOCKED
-    if is_known_maker(source):
+    if is_known_maker(source, title):
         return TIER_MAKER
+    if is_department_store(source):
+        return TIER_BLOCKED          # no listed maker in the title -> not shown
     if is_mainstream(source):
         return TIER_MAINSTREAM
     return TIER_UNKNOWN
+
+
+def display_name(maker):
+    """'nour hammour' -> 'Nour Hammour', for showing on the card."""
+    special = {"allsaints": "AllSaints", "re/done": "RE/DONE", "&daughter": "&Daughter",
+               "slvrlake": "SLVRLAKE", "agolde": "AGOLDE", "st. agni": "St. Agni",
+               "q for quinn": "Q for Quinn"}
+    return special.get(maker, " ".join(w.capitalize() for w in maker.split()))
 
 
 def makers_for(category):
@@ -181,8 +285,15 @@ def makers_for(category):
     if not category:
         return []
     c = category.lower()
-    return [name for name, meta in QUALITY_MAKERS.items()
-            if any(tag in c for tag in meta["good_at"])][:6]
+    found = [name for name, meta in QUALITY_MAKERS.items()
+             if any(tag in c for tag in meta["good_at"])]
+    if len(found) > 1:
+        # Rotate by the day so every maker on the list gets searched over a week,
+        # while the same scan on the same day still returns the same answer.
+        import datetime
+        k = datetime.date.today().toordinal() % len(found)
+        found = found[k:] + found[:k]
+    return found[:6]
 
 
 def fiber_upgrade_for(category):
@@ -220,12 +331,23 @@ def build_queries(category, max_queries=4, look=None, material=None):
     # sweater. Searched by material, with no brand-led queries, because none of
     # the makers on the list work in leather.
     if material in ("real leather", "faux leather"):
-        noun = cat if "leather" in cat.lower() else f"leather {cat}"
-        return [
+        if "leather" in cat.lower():
+            noun = cat
+        else:
+            # "women's jacket" -> "women's leather jacket", the way people search.
+            head, _, rest = cat.partition(" ")
+            noun = f"{head} leather {rest}" if rest and head.lower().endswith("'s") \
+                else f"leather {cat}"
+        shape = " ".join(w for w in look if w != "leather")
+        queries = [
             f"{noun} {shape} genuine leather".replace("  ", " ").strip(),
-            f"{noun} full grain leather",
             f"{noun} lambskin",
-        ][:max_queries]
+        ]
+        # Two brand-led queries, so the makers known for leather actually show
+        # up to be judged instead of losing to whoever has the biggest feed.
+        for maker in makers_for(noun)[:max_queries - len(queries)]:
+            queries.append(f"{maker} {noun}")
+        return queries[:max_queries]
 
     # The shape goes on the fibre-led query (the one that returns the most) and
     # on one brand-led query. Leaving a cert-led query un-narrowed keeps a wide

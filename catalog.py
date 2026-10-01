@@ -323,6 +323,12 @@ def evaluate(item, price=None, scanned_score=None, category=None,
     if brands.is_blocked(source):
         return None
 
+    # 0a. A department store or off-price chain only counts when the piece
+    #     itself is by a maker on Filo's list. See brands.DEPARTMENT_STORES.
+    maker = brands.maker_in(source, item.get("title"))
+    if maker is None and brands.is_department_store(source):
+        return None
+
     # 0b. It has to be the same kind of garment. A jacket is answered with a
     #     jacket, never a sweater, however well made the sweater is.
     if not same_garment(item.get("title"), category):
@@ -386,13 +392,15 @@ def evaluate(item, price=None, scanned_score=None, category=None,
         # The shopper picks their own size at the shop; "Size 18" is noise here.
         "name": re.sub(r"\s*\b(?:size|sz)\s*[\w/.-]+", "", item.get("title") or "",
                        flags=re.I).strip(),
-        "brand": source,
+        # Show the maker when we recognise one, otherwise the shop it's sold in.
+        "brand": brands.display_name(maker) if maker else source,
+        "retailer": source,
         "price": p,
         "score": score,
         "url": item.get("product_link") or item.get("link"),
         "image_url": item.get("thumbnail"),
-        "known_maker": brands.is_known_maker(source),
-        "tier": brands.tier(source),
+        "known_maker": maker is not None,
+        "tier": brands.tier(source, item.get("title")),
         "value_note": _value_line(p, durability, price, scan_dur),
     }
 

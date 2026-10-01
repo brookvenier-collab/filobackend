@@ -109,7 +109,7 @@ def test_no_fast_fashion():
     for q in brands.build_queries("women's jeans"):
         print(f"        {q}")
     check("brand-led query present",
-          any("nudie" in q or "armedangels" in q for q in brands.build_queries("women's jeans")), True)
+          any(brands.maker_in(q) for q in brands.build_queries("women's jeans")), True)
 
 
 def test_price_earns_itself():
@@ -356,7 +356,12 @@ def test_leather_and_garment_type():
                              ("Heavy Cotton T-Shirt 100% Cotton", "shirt", False)]:
         check(f"{cat} <- {title[:34]}", catalog.same_garment(title, cat), want)
 
-    check("no fallback makers for jackets", brands.makers_for("jacket"), [])
+    # Jackets now have real specialists (the taste tier, v17). The rule that
+    # still matters: a category nobody specialises in gets no brand-led query.
+    check("no fallback makers where nobody specialises", brands.makers_for("leggings"), [])
+    check("jacket makers actually make jackets",
+          all("jacket" in brands.QUALITY_MAKERS[m]["good_at"] or "leather" in brands.QUALITY_MAKERS[m]["good_at"]
+              for m in brands.makers_for("jacket")), True)
     q = brands.build_queries("jacket", material="faux leather")
     check("faux leather searches real leather", all("leather jacket" in x for x in q), True)
 
@@ -723,6 +728,37 @@ def test_v16_colour_pick():
           {"black","white","cream","grey","navy","blue","brown","tan","green","red","burgundy","pink"} <= vision.COLOR, True)
 
 
+def test_v17_taste_tier_and_department_stores():
+    import brands
+    print("\n=== v17: cool makers, not department stores ===")
+    leather = {"extracted_price": 600, "source": "Macy's"}
+    generic = dict(leather, title="INC Women's Leather Moto Jacket 100% Leather")
+    schott = dict(leather, title="Schott NYC Women's Leather Moto Jacket 100% Leather")
+    kw = dict(price=500, scanned_score=4.0, category="women's jacket", material="real leather")
+    check("Macy's house label is dropped", catalog.evaluate(generic, **kw), None)
+    kept = catalog.evaluate(schott, **kw)
+    check("a listed maker sold at Macy's is kept", kept is not None, True)
+    check("...and shown under the maker's name", kept["brand"], "Schott")
+    check("...as a known maker", kept["tier"], brands.TIER_MAKER)
+    check("maker in the title lifts a boutique listing",
+          brands.tier("Nordstrom", "AGOLDE 90s Pinch Waist Jean"), brands.TIER_MAKER)
+    check("unknown brand at Nordstrom stays mainstream", brands.tier("Nordstrom", "Nice Jean"), brands.TIER_MAINSTREAM)
+    check("a small label Filo doesn't know still gets through",
+          catalog.evaluate({"title": "Leather Jacket 100% Lambskin Leather", "extracted_price": 550,
+                            "source": "TinyAtelier"}, **kw) is not None, True)
+    check("whole-word matching", brands.maker_in("Possession Wrap Dress"), None)
+    check("accents and spacing", brands.maker_in("Sézane Gaspard Cardigan"), "sezane")
+    check("a maker's name never buys a pass on fabric",
+          catalog.evaluate({"title": "Nour Hammour Jacket 100% Polyester", "extracted_price": 500,
+                            "source": "Nour Hammour"}, price=500, scanned_score=4.0,
+                           category="women's jacket"), None)
+    q = brands.build_queries("women's jacket", look=["leather", "burgundy"], material="real leather")
+    check("leather pick searches leather jackets", all("leather" in x for x in q), True)
+    check("...the way people type it", q[0].startswith("women's leather jacket"), True)
+    check("...and names leather makers", sum(1 for x in q if brands.maker_in(x)) >= 1, True)
+    check("...keeping the colour", "burgundy" in q[0], True)
+
+
 if __name__ == "__main__":
     test_parser()
     test_scoring()
@@ -740,6 +776,7 @@ if __name__ == "__main__":
     test_v13_evidence_and_rarity()
     test_v14_seasonal_home()
     test_v16_colour_pick()
+    test_v17_taste_tier_and_department_stores()
     print()
     if FAILS:
         print(f"{len(FAILS)} FAILURES")

@@ -177,6 +177,12 @@ def analyze(req: AnalyzeRequest):
             look = [chosen] + [w for w in look if w not in vision.COLOR]
             result["color"] = chosen
 
+        # Picking "Leather" means "show me leather": the options are searched as
+        # leather and only real leather is shown, exactly as if the tag said so.
+        search_material = result.get("material")
+        if chosen == "leather" and not search_material:
+            search_material = "real leather"
+
         # catalog builds its own multi-angle search (fiber, certification, and the
         # names of makers known for cloth) because one generic query only ever
         # returns whoever has the biggest product feed. See brands.py.
@@ -188,7 +194,7 @@ def analyze(req: AnalyzeRequest):
             scanned_score=score,
             scanned_durability=result.get("durability"),
             look=look,
-            material=result.get("material"),
+            material=search_material,
             department=department,
         )
 
