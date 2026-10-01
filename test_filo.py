@@ -458,7 +458,7 @@ def test_v11_department_price_fast_accounts():
     check("price -> price note", (priced["price_note"] or "").startswith("$75"), True)
     check("price -> no prompt", priced["price_prompt"], None)
     # v14 added season fields; the two 1.1 keys must stay so older builds keep working.
-    check("/config keeps 1.1 keys", {"home_image_alt", "home_image_url"} <= set(main.config()), True)
+    check("/config keeps 1.1 keys", {"home_image_alt", "home_image_url"} <= set(main.home_config()), True)
 
     print("\n=== v11: account sessions ===")
     import accounts, uuid

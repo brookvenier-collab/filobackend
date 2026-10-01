@@ -7,8 +7,8 @@ import os
 from datetime import datetime, timezone
 from typing import List, Optional
 from concurrent.futures import ThreadPoolExecutor
-from fastapi import FastAPI, Header, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi.responses import HTMLResponse, Response
 import html as _html
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -23,6 +23,7 @@ import affiliate
 import accounts
 import fund
 import seams
+import homecard
 
 app = FastAPI(title="Filo AI")
 
@@ -33,6 +34,7 @@ def _startup():
     events.init_schema()
     accounts.init_schema()
     fund.init_schema()
+    homecard.init_schema()
     fund.start_daily_thread()
 
 app.add_middleware(
@@ -259,25 +261,108 @@ def season_for(month: int) -> str:
     return "summer"
 
 
-def home_config(month: Optional[int] = None) -> dict:
+def home_config(month: Optional[int] = None, base_url: str = "") -> dict:
+    """What the home card shows right now. Priority, highest first:
+         1. the "Now" slot on /admin/home           (a launch, a holiday)
+         2. HOME_IMAGE_URL / HOME_EYEBROW / HOME_TITLE on Railway
+         3. this season's slot on /admin/home
+         4. HOME_IMAGE_URL_<SEASON> etc. on Railway
+         5. the season's default line; no photo → the app keeps its bundled one
+    """
     env = os.environ.get
     pinned = (env("HOME_SEASON") or "").strip().lower()
     season = pinned if pinned in SEASON_COPY else \
         season_for(month or datetime.now(timezone.utc).month)
     S = season.upper()
     eyebrow, title = SEASON_COPY[season]
+    now_card = homecard.meta("now")
+    season_card = homecard.meta(season)
+
+    def card_image(slot, card):
+        if card and card["has_image"]:
+            return f"{base_url}/home-image/{slot}?v={card['version']}"
+        return None
+
+    def pick(field, env_now, env_season, default=None):
+        return ((now_card or {}).get(field) or env(env_now)
+                or (season_card or {}).get(field) or env(env_season) or default)
+
+    image_url = (card_image("now", now_card) or env("HOME_IMAGE_URL")
+                 or card_image(season, season_card) or env(f"HOME_IMAGE_URL_{S}") or None)
     return {
         "season": season,
-        "home_image_url": env("HOME_IMAGE_URL") or env(f"HOME_IMAGE_URL_{S}") or None,
-        "home_image_alt": env("HOME_IMAGE_ALT") or env(f"HOME_IMAGE_ALT_{S}") or None,
-        "home_eyebrow": env("HOME_EYEBROW") or env(f"HOME_EYEBROW_{S}") or eyebrow,
-        "home_title": env("HOME_TITLE") or env(f"HOME_TITLE_{S}") or title,
+        "home_image_url": image_url,
+        "home_image_alt": pick("alt", "HOME_IMAGE_ALT", f"HOME_IMAGE_ALT_{S}"),
+        "home_eyebrow": pick("eyebrow", "HOME_EYEBROW", f"HOME_EYEBROW_{S}", eyebrow),
+        "home_title": pick("title", "HOME_TITLE", f"HOME_TITLE_{S}", title),
     }
 
 
+def _public_base(request: Request) -> str:
+    """Absolute https origin for links the app will open. Railway terminates TLS
+    in front of us, so the request itself looks like plain http."""
+    fixed = os.environ.get("PUBLIC_BASE_URL", "").rstrip("/")
+    if fixed:
+        return fixed
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host") or ""
+    return f"https://{host}" if host else ""
+
+
 @app.get("/config")
-def config():
-    return home_config()
+def config(request: Request):
+    return home_config(base_url=_public_base(request))
+
+
+# ----------------------------------------------------------------- home card admin
+# Open /admin/home in any browser, unlock with ADMIN_TOKEN, tap a card, pick a
+# photo, Save. See homecard.py.
+
+@app.get("/admin/home", response_class=HTMLResponse, include_in_schema=False)
+def admin_home_page():
+    return HTMLResponse(homecard.ADMIN_PAGE, headers={"Cache-Control": "no-store"})
+
+
+@app.get("/admin/home/state", include_in_schema=False)
+def admin_home_state(request: Request, x_filo_admin: Optional[str] = Header(default=None)):
+    _require_admin(x_filo_admin)
+    live_cfg = home_config(base_url=_public_base(request))
+    live = "now" if homecard.meta("now") else live_cfg["season"]
+    return {"slots": homecard.all_meta(), "live": live,
+            "defaults": {s: {"eyebrow": e, "title": t} for s, (e, t) in SEASON_COPY.items()}}
+
+
+@app.post("/admin/home/{slot}", include_in_schema=False)
+def admin_home_save(slot: str, card: homecard.CardIn,
+                    x_filo_admin: Optional[str] = Header(default=None)):
+    _require_admin(x_filo_admin)
+    try:
+        return homecard.save(slot, card)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except RuntimeError:
+        raise HTTPException(status_code=503, detail="The database isn't reachable right now.")
+
+
+@app.delete("/admin/home/{slot}", include_in_schema=False)
+def admin_home_clear(slot: str, x_filo_admin: Optional[str] = Header(default=None)):
+    _require_admin(x_filo_admin)
+    try:
+        return homecard.clear(slot)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except RuntimeError:
+        raise HTTPException(status_code=503, detail="The database isn't reachable right now.")
+
+
+@app.get("/home-image/{slot}", include_in_schema=False)
+def home_image(slot: str):
+    found = homecard.image(slot)
+    if not found:
+        raise HTTPException(status_code=404, detail="No image")
+    data, ctype = found
+    # Each save changes the ?v= in the link, so a long cache is safe.
+    return Response(content=data, media_type=ctype,
+                    headers={"Cache-Control": "public, max-age=31536000, immutable"})
 
 
 # ----------------------------------------------------------------- accounts
