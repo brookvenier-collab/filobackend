@@ -112,6 +112,12 @@ def parse_composition(text, allow_bare=True):
     """
     text = normalize_materials(text)
 
+    # OCR often splits "100%" into "1 00%" or "10 0%" (a gap in the tag's font).
+    # Read as written, that becomes "1% leather". Rejoin digits that only make
+    # sense together, so the percentage survives the camera.
+    text = re.sub(r"\b(\d)\s+(\d{2})\s*%", r"\1\2%", text)
+    text = re.sub(r"\b(\d{2})\s+(\d)\s*%", r"\1\2%", text)
+
     # Where does each known fiber appear? (spans, so we can pair by proximity)
     fiber_spans = []
     for fiber in KNOWN_FIBERS:
@@ -158,6 +164,10 @@ def parse_composition(text, allow_bare=True):
             if fiber:
                 pairs.append((fiber, int(m.group(1))))
         pairs = _dedupe(pairs)
+        if len(pairs) == 1 and pairs[0][1] < 100:
+            # One fiber on the tag is the whole garment. A lone "1%" or "10%"
+            # is a misread, not a composition.
+            pairs = [(pairs[0][0], 100)]
         if pairs:
             return pairs
 
@@ -199,10 +209,93 @@ def synthetic_pct(matched):
     return sum(p for k, p, _ in matched if k in SYNTHETICS)
 
 
-def quality_score(composition, allow_bare=True):
-    pairs = parse_composition(composition, allow_bare=allow_bare)
+# Tags list more than one part of the garment: "Shell: 100% Leather / Lining:
+# 100% Polyester". The shell is the garment — it is what wears, pills or ages.
+# The lining, pocketing, trim and fill are supporting parts, and nearly every
+# coat and jacket lines in polyester or acetate. Averaging them in scored a real
+# leather jacket 4.7. So the main fabric sets the score and supporting parts can
+# only nudge it upward when they are better than the norm (a cupro or silk
+# lining, down fill). A standard lining costs nothing.
+_MAIN_LABELS = r"shell|outer(?:\s+shell)?|outside|exterior|main(?:\s+fabric)?|body|self|face|fabric|upper"
+_SUPPORT_LABELS = (r"lining|linings|lined|interlining|sleeve\s+lining|pocket(?:ing|s)?|"
+                   r"trim|trims|rib|ribbing|cuffs?|collar|contrast|filling|fill|"
+                   r"padding|wadding|insulation|embroidery|binding|facing")
+_SECTION_RE = re.compile(r"\b(" + _MAIN_LABELS + r"|" + _SUPPORT_LABELS + r")\b\s*[:\-–]",
+                         re.IGNORECASE)
+_SUPPORT_RE = re.compile(r"^(?:" + _SUPPORT_LABELS + r")$", re.IGNORECASE)
+
+# Supporting fibers that are a genuine step up from the usual polyester/acetate.
+_SUPPORT_BONUS = {"cupro": 0.3, "silk": 0.3, "down": 0.3, "wool": 0.2,
+                  "cotton": 0.2, "linen": 0.2, "lyocell": 0.1, "modal": 0.1,
+                  "viscose": 0.1, "leather": 0.2}
+SUPPORT_BONUS_CAP = 0.3
+
+
+# A plastic lining is the norm, not a disaster — but on a premium shell it is a
+# real compromise: it doesn't breathe, it's usually the first part to tear, and
+# it's where a maker saves money. It costs a little, never more than the cap.
+SUPPORT_PENALTY_MAX = 0.5
+
+
+def support_adjustment(support_text, allow_bare=True):
+    """Small +/- from lining, fill and trim. Never larger than +0.3 / -0.5."""
+    pairs = parse_composition(support_text, allow_bare=allow_bare)
     if not pairs:
-        return None, []
+        return 0.0
+    total = sum(p for _, p in pairs) or 100
+    bonus, synth = 0.0, 0
+    for name, pct in pairs:
+        key, _ = _fiber_weight(name)
+        bonus = max(bonus, _SUPPORT_BONUS.get(key, 0.0) * min(pct, 100) / 100)
+        if key in SYNTHETICS:
+            synth += pct
+    share = synth / total
+    if share >= 0.5:
+        return -round(SUPPORT_PENALTY_MAX * share, 1)
+    return min(bonus, SUPPORT_BONUS_CAP)
+
+
+def lining_note(composition):
+    """One plain line about the lining when it changes the read, else None."""
+    main_text, support_text = split_sections(composition)
+    if not support_text or not parse_composition(main_text):
+        return None
+    adj = support_adjustment(support_text)
+    _, main_matched = _score_pairs(parse_composition(main_text))
+    if adj < 0 and synthetic_pct(main_matched) >= 50:
+        return None          # plastic inside plastic — nothing new to say
+    if adj < 0:
+        return ("Lined in synthetic fabric — it won't breathe like the outside, "
+                "and it's usually the first part to wear through.")
+    if adj > 0:
+        return "A quality lining too — a sign the maker didn't cut corners inside."
+    return None
+
+
+def split_sections(composition):
+    """(main_text, support_text). Unlabelled text counts as main."""
+    text = composition or ""
+    marks = list(_SECTION_RE.finditer(text))
+    if not marks:
+        return text, ""
+    main, support = [text[:marks[0].start()]], []
+    for i, m in enumerate(marks):
+        end = marks[i + 1].start() if i + 1 < len(marks) else len(text)
+        chunk = text[m.end():end]
+        (support if _SUPPORT_RE.match(m.group(1).strip()) else main).append(chunk)
+    return " ".join(main), " ".join(support)
+
+
+def quality_score(composition, allow_bare=True):
+    main_text, support_text = split_sections(composition)
+    if support_text and parse_composition(main_text, allow_bare=allow_bare):
+        score, matched = _score_pairs(parse_composition(main_text, allow_bare=allow_bare))
+        score = max(0.0, min(10.0, round(score + support_adjustment(support_text, allow_bare), 1)))
+        return score, matched
+    return _score_pairs(parse_composition(composition, allow_bare=allow_bare))
+
+
+def _score_pairs(pairs):
     total = sum(p for _, p in pairs) or 100
     weighted = 0.0
     matched = []
@@ -375,6 +468,14 @@ def price_note(score, matched, price, group, material=None):
     return None
 
 
+def _with_lining(out, composition):
+    note = lining_note(composition)
+    if note:
+        out = list(out)
+        out.insert(1, note)
+    return out
+
+
 PRICE_PROMPT = "Add the price to see if it's worth it."
 
 
@@ -411,7 +512,7 @@ def analyze(item):
         "score": score,
         "material": material,
         "verdict": verdict(score),
-        "reasons": reasons(score, matched, price),
+        "reasons": _with_lining(reasons(score, matched, price), composition),
         "wears": wears,
         "care_flags": flags,
         "value_note": value_note(score, price),
