@@ -57,6 +57,7 @@ from pydantic import BaseModel, Field
 
 import events
 import affiliate
+import brands
 
 log = logging.getLogger("filo.fund")
 
@@ -574,16 +575,19 @@ def make_link(account_id: Optional[str], req: LinkRequest) -> Dict[str, Any]:
             cur.execute("""INSERT INTO fund_clicks (ref, account_id, source, rate, earns, url,
                                                     title, store, image, price)
                            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
-                        (ref, account_id, source, rate, purchase_points_on(), url,
+                        (ref, account_id, source, rate,
+                         # Pre-owned (resale) never earns points. See brands.TRUSTED_RESALE.
+                         purchase_points_on() and not brands.is_resale(url), url,
                          req.title, req.store, req.image, req.price))
             cur.execute("UPDATE fund_progress SET active_at=NOW() WHERE account_id=%s", (account_id,))
     except Exception as exc:            # noqa: BLE001  never block a shopper from the store
         log.warning("fund: click not recorded (%s)", exc)
         return {"url": affiliate.wrap(url, "filo"), "tracked": False}
     band = quality_band(score)
+    earning = purchase_points_on() and not brands.is_resale(url)
     return {"url": affiliate.wrap(url, "filo", cuid=ref), "tracked": True,
-            "points_per_dollar": rate if purchase_points_on() else 0,
-            "quality_bonus": QUALITY_BONUS[band] if purchase_points_on() else 0,
+            "points_per_dollar": rate if earning else 0,
+            "quality_bonus": QUALITY_BONUS[band] if earning else 0,
             "quality_band": QUALITY_BAND_NAMES[band]}
 
 

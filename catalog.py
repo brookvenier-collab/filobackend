@@ -56,6 +56,11 @@ MAX_MAINSTREAM = 1
 # four times over in different sizes.
 MAX_PER_BRAND = 2
 
+# At most two pre-owned pieces (The RealReal) in the four slots. Pre-owned is a
+# fair answer to "what's better made at this budget", but a list that is all
+# one-off second-hand pieces sells out from under the shopper.
+MAX_PREOWNED = 2
+
 # ---------------------------------------------------------------- garment type
 # The search QUERY names the garment, but nothing checked that what came back
 # was that garment. A jacket scan got sweaters. Every listing now has to name the
@@ -351,7 +356,10 @@ def evaluate(item, price=None, scanned_score=None, category=None,
 
     # 1. Price. Cheap-and-suspicious is out; expensive has to earn it below.
     if price is not None and p is not None:
-        if p < price * PRICE_FLOOR or p > price * PRICE_CEILING:
+        # Pre-owned is cheap because it's pre-owned, not because it's suspect,
+        # so the floor doesn't apply to it. The ceiling still does.
+        floor = 0 if brands.is_resale(source) else price * PRICE_FLOOR
+        if p < floor or p > price * PRICE_CEILING:
             return None
     # 1b. No price given: keep to a sensible range for this kind of garment.
     #     Only the ceiling — a cheaper well-made piece is fine when we don't know
@@ -408,8 +416,12 @@ def evaluate(item, price=None, scanned_score=None, category=None,
         "name": re.sub(r"\s*\b(?:size|sz)\s*[\w/.-]+", "", item.get("title") or "",
                        flags=re.I).strip(),
         # Show the maker when we recognise one, otherwise the shop it's sold in.
-        "brand": brands.display_name(maker) if maker else source,
+        # Pre-owned is said on the card itself (the brand line), so it shows in
+        # every version of the app without an update.
+        "brand": (((brands.display_name(maker) if maker else source) or "")
+                  + (" · Pre-owned" if brands.is_resale(source) else "")) or None,
         "retailer": source,
+        "preowned": brands.is_resale(source),
         "price": p,
         "score": score,
         "url": item.get("product_link") or item.get("link"),
@@ -493,11 +505,15 @@ def search_alternatives(category=None, name=None, price=None,
               reverse=True)
 
     # Then cap the mall brands, so one chain with a huge feed can't own the list.
-    out, mainstream_used, per_brand = [], 0, {}
+    out, mainstream_used, preowned_used, per_brand = [], 0, 0, {}
     for r in kept:
         b = (r.get("brand") or "").lower().strip()
         if per_brand.get(b, 0) >= MAX_PER_BRAND:
             continue
+        if r.get("preowned"):
+            if preowned_used >= MAX_PREOWNED:
+                continue
+            preowned_used += 1
         if r["tier"] == brands.TIER_MAINSTREAM:
             if mainstream_used >= MAX_MAINSTREAM:
                 continue

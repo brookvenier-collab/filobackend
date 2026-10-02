@@ -785,13 +785,43 @@ def test_v18_budget_knockoffs_cheap_leather():
     check("a listed maker under $250 is kept",
           catalog.evaluate({"title": "Deadwood River Jacket 100% Leather", "extracted_price": 240,
                             "source": "Deadwood"}, **kw) is not None, True)
-    check("The RealReal is resale, and blocked", brands.is_blocked("The RealReal"), True)
+    check("The RealReal is allowed (v20)", brands.is_blocked("The RealReal"), False)
+    check("other resale is still blocked", all(brands.is_blocked(s) for s in
+          ("Depop", "Vinted", "Poshmark", "Vestiaire Collective", "eBay", "Grailed")), True)
     jq = brands.build_queries("women's jeans")
     check("jeans search two makers that state their fibres",
           sum(1 for q in jq if brands.maker_in(q) in brands.STATES_FIBRES) >= 2, True)
     check("never more than five searches", len(jq) <= 5, True)
     check("knock-offs never reach the list", catalog.evaluate(
         {"title": "Gucci Cruise Jacket 100% Leather", "extracted_price": 380, "source": "TaylorJon"}, **kw), None)
+
+
+def test_v20_the_realreal():
+    import brands, fund
+    print("\n=== v20: The RealReal can be shown, labelled, capped, no points ===")
+    kw = dict(price=300, scanned_score=4.0, category="women's sweater")
+    trr = {"title": "Loulou Studio Cable Knit Sweater 100% Cashmere", "extracted_price": 132,
+           "source": "The RealReal", "link": "https://www.therealreal.com/products/x"}
+    got = catalog.evaluate(trr, **kw)
+    check("a pre-owned piece that passes is kept, even far below the price floor", got is not None, True)
+    check("...labelled pre-owned on the card", got["brand"], "Loulou Studio · Pre-owned")
+    check("...and flagged", got["preowned"], True)
+    check("pre-owned plastic is still dropped", catalog.evaluate(
+        dict(trr, title="Loulou Studio Sweater 100% Acrylic"), **kw), None)
+    check("pre-owned with no fibre stated is still dropped", catalog.evaluate(
+        dict(trr, title="Loulou Studio Sweater"), **kw), None)
+    check("a new piece is not flagged", catalog.evaluate(
+        dict(trr, source="Loulou Studio", extracted_price=320), **kw)["preowned"], False)
+    many = [dict(trr, title=f"Naadam Sweater {i} 100% Cashmere", link=f"t{i}") for i in range(2)] + \
+           [dict(trr, title=f"Lisa Yang Sweater {i} 100% Cashmere", link=f"l{i}") for i in range(2)] + \
+           [{"title": "Wool Sweater 100% Merino Wool", "extracted_price": 280, "source": "KnitCo", "link": "k"}]
+    catalog._fetch = lambda q, num=40: many
+    catalog.SERPAPI_KEY = "test"
+    alts = catalog.search_alternatives("women's sweater", price=300, scanned_score=4.0)
+    check("never more than two pre-owned", sum(1 for a in alts if a["preowned"]) <= catalog.MAX_PREOWNED, True)
+    check("resale links are recognised for points", fund.brands.is_resale("https://www.therealreal.com/products/x"), True)
+    check("an authenticated luxury piece at The RealReal is not a knock-off",
+          brands.looks_like_knockoff("The RealReal", "Prada Wool Coat"), False)
 
 
 if __name__ == "__main__":
@@ -813,6 +843,7 @@ if __name__ == "__main__":
     test_v16_colour_pick()
     test_v17_taste_tier_and_department_stores()
     test_v18_budget_knockoffs_cheap_leather()
+    test_v20_the_realreal()
     print()
     if FAILS:
         print(f"{len(FAILS)} FAILURES")

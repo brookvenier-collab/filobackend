@@ -43,9 +43,30 @@ FAST_FASHION = {
 UNVERIFIABLE_SOURCES = {
     "amazon", "walmart", "ebay", "etsy", "poshmark", "mercari", "wayfair",
     # Resale: one-off listings whose fibre content is whatever the seller typed.
-    "depop", "vinted", "thredup", "therealreal", "the realreal", "realreal",
-    "vestiaire", "grailed", "tradesy", "rebag", "fashionphile", "thred up",
+    # The RealReal is the one exception: see TRUSTED_RESALE below.
+    "depop", "vinted", "thredup", "vestiaire", "grailed", "tradesy", "rebag",
+    "fashionphile", "thred up",
 }
+
+# --------------------------------------------------------------------------
+# Resale Filo will show (Brooklyn, 1 Oct 2026: "if The RealReal has better made
+# options it can be used"). Unlike peer-to-peer resale, The RealReal handles and
+# authenticates each piece itself and writes the listing, fabric included.
+#
+# A pre-owned piece still has to pass every test a new one does. On top of that:
+#   · it is always labelled "Pre-owned" on the card, so nobody is surprised;
+#   · at most MAX_PREOWNED (catalog.py) of the four slots can be pre-owned;
+#   · it earns no Closet Fund points — the Terms say resale doesn't, and one-off
+#     pieces are returned and re-listed too often for purchase tracking to hold.
+# --------------------------------------------------------------------------
+TRUSTED_RESALE = {"the realreal", "therealreal", "realreal"}
+
+
+def is_resale(text):
+    """True for a shop name or a link belonging to a resale site Filo shows."""
+    t = (text or "").lower()
+    return any(name in t for name in TRUSTED_RESALE)
+
 
 # --------------------------------------------------------------------------
 # The mall tier. NOT blocked — these shops do sometimes make a decent cotton
@@ -239,6 +260,8 @@ AUTHORISED_RETAILERS = {
     "bergdorf", "holt renfrew", "selfridges", "harrods", "luisaviaroma",
     "24s", "moda operandi", "shopbop", "revolve", "fwrd", "harvey nichols",
     "browns", "the outnet", "senser", "simons", "hudson's bay",
+    # Authenticated resale: a pre-owned Prada coat here is a real Prada coat.
+    "the realreal", "therealreal",
 }
 # Words that mark costume and celebrity "replica" jackets.
 REPLICA_WORDS = {"replica", "inspired", "cosplay", "costume", "celebrity",
