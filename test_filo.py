@@ -785,6 +785,11 @@ def test_v18_budget_knockoffs_cheap_leather():
     check("a listed maker under $250 is kept",
           catalog.evaluate({"title": "Deadwood River Jacket 100% Leather", "extracted_price": 240,
                             "source": "Deadwood"}, **kw) is not None, True)
+    check("The RealReal is resale, and blocked", brands.is_blocked("The RealReal"), True)
+    jq = brands.build_queries("women's jeans")
+    check("jeans search two makers that state their fibres",
+          sum(1 for q in jq if brands.maker_in(q) in brands.STATES_FIBRES) >= 2, True)
+    check("never more than five searches", len(jq) <= 5, True)
     check("knock-offs never reach the list", catalog.evaluate(
         {"title": "Gucci Cruise Jacket 100% Leather", "extracted_price": 380, "source": "TaylorJon"}, **kw), None)
 

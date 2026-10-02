@@ -43,7 +43,8 @@ FAST_FASHION = {
 UNVERIFIABLE_SOURCES = {
     "amazon", "walmart", "ebay", "etsy", "poshmark", "mercari", "wayfair",
     # Resale: one-off listings whose fibre content is whatever the seller typed.
-    "depop", "vinted", "thredup", "therealreal", "vestiaire", "grailed", "tradesy",
+    "depop", "vinted", "thredup", "therealreal", "the realreal", "realreal",
+    "vestiaire", "grailed", "tradesy", "rebag", "fashionphile", "thred up",
 }
 
 # --------------------------------------------------------------------------
@@ -396,7 +397,7 @@ def fiber_upgrade_for(category):
     return "100% organic cotton"
 
 
-def build_queries(category, max_queries=4, look=None, material=None, budget_ratio=None):
+def build_queries(category, max_queries=5, look=None, material=None, budget_ratio=None):
     """Several angles at the same shelf, because one generic query only ever
     returns the shops with the biggest product feeds.
 
@@ -450,6 +451,9 @@ def build_queries(category, max_queries=4, look=None, material=None, budget_rati
         f"{cat} {QUALITY_QUALIFIERS[2]}",
     ]
 
+    # Three brand-led searches (five in all): two makers whose listings state
+    # their fibres and one taste maker. With only two, a day whose makers had
+    # thin women's ranges returned nothing at all for jeans (live test, 1 Oct).
     makers = makers_for(cat, budget_ratio)
     for i, maker in enumerate(makers[:max_queries - len(queries)]):
         if shape and i == 0:
