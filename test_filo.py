@@ -824,6 +824,32 @@ def test_v20_the_realreal():
           brands.looks_like_knockoff("The RealReal", "Prada Wool Coat"), False)
 
 
+def test_v21_breakdown():
+    import breakdown
+    def rows(c, k=None):
+        r = fabric.analyze({"composition": c, "construction": k})
+        return breakdown.build(c, k, r)
+    r = rows("62% polyester 33% viscose 5% elastane")
+    check("v21 polyester is a bad row", [x["side"] for x in r if "Polyester" in x["title"]], ["bad"])
+    check("v21 small elastane is not held against it",
+          [x["side"] for x in r if "Elastane" in x["title"]], ["good"])
+    check("v21 stitching note when unchecked", any(x["side"] == "note" for x in r), True)
+    r = rows("Shell: 100% leather. Lining: 100% polyester")
+    check("v21 leather is good", r[0]["side"], "good")
+    check("v21 plastic lining is bad",
+          [x["side"] for x in r if "lining" in x["title"]], ["bad"])
+    r = rows("100% linen", ["french_seams"])
+    check("v21 seam proof shows", any(x["title"] == "French seams" for x in r), True)
+    check("v21 no stitching note once checked", any(x["side"] == "note" for x in r), False)
+    check("v21 unreadable tag gives no rows", rows("hello"), [])
+    allrows = rows("50% wool 50% acrylic") + rows("100% cashmere") + rows("100% pu leather")
+    text = " ".join(x["title"] + x["line"] + x["detail"] for x in allrows) + \
+        " ".join(" ".join(v[1:]) for v in breakdown.FIBRES.values())
+    check("v21 no dashes in the words", ("\u2014" in text) or ("\u2013" in text), False)
+    check("v21 every scored fibre has notes",
+          sorted(set(fabric.FIBER_QUALITY) - set(breakdown.FIBRES)), [])
+
+
 if __name__ == "__main__":
     test_parser()
     test_scoring()
@@ -844,6 +870,7 @@ if __name__ == "__main__":
     test_v17_taste_tier_and_department_stores()
     test_v18_budget_knockoffs_cheap_leather()
     test_v20_the_realreal()
+    test_v21_breakdown()
     print()
     if FAILS:
         print(f"{len(FAILS)} FAILURES")

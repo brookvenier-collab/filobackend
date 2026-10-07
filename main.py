@@ -24,6 +24,7 @@ import accounts
 import fund
 import seams
 import homecard
+import breakdown
 
 app = FastAPI(title="Filo AI")
 
@@ -111,6 +112,12 @@ def analyze(req: AnalyzeRequest):
         # What the seam photo showed, so the app can say so — even when it was
         # nothing ("we couldn't make out the seam — try closer, in good light").
         result["seam_read"] = {"tokens": seam_tokens, "read": bool(seam_tokens)}
+
+    # v21: the verdict taken apart row by row, in plain words (breakdown.py).
+    try:
+        result["breakdown"] = breakdown.build(item["composition"], item["construction"], result)
+    except Exception:                       # noqa: BLE001  never block a verdict
+        result["breakdown"] = []
 
     score = result.get("score")
 
