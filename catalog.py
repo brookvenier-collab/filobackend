@@ -45,6 +45,27 @@ PRICE_FLOOR = 0.60      # never show something suspiciously cheaper
 PRICE_CEILING = 2.50    # absolute ceiling, even with great cost-per-wear
 FREE_PRICE_HEADROOM = 1.40   # below this, no justification needed
 
+# v22. "Find one that is better made" should almost never come back empty, least
+# of all because the shopper typed a price. So the price rules above are the
+# FIRST choice, not the only one. When they leave empty slots, the same search
+# results are looked at again with the price rules loosened one step at a time:
+#
+#   0  strict     the price band and the cost-per-wear rule, as always
+#   1  wider      0.4x to 4x the price, no cost-per-wear rule
+#   2  any price  no price rule at all
+#   3  as good    any price, and a piece made just as well counts too
+#
+# Only PRICE (and, last, "better" vs "just as good") ever loosens. Every other
+# rule holds at every level: stated fibre content, the quality floor, not mostly
+# synthetic, same garment, same department, no blocked shops, no knock-offs.
+# Each loosened pick is labelled so the app can say so in plain words.
+RELAX_WIDER, RELAX_ANY_PRICE, RELAX_AS_GOOD = 1, 2, 3
+WIDE_PRICE_FLOOR = 0.40
+WIDE_PRICE_CEILING = 4.00
+NOTE_PRICIER = ("Nothing better made at your price. "
+                "These are the closest ones we found.")
+NOTE_AS_GOOD = "Nothing beat yours. These are made just as well."
+
 # At most one mall brand in the list. They are not banned — a mall chain that
 # genuinely passes the fabric test has earned a place — but they have enormous
 # product feeds and were taking every slot on volume alone, which turned "better
@@ -321,10 +342,13 @@ def look_match(item, look):
 
 def evaluate(item, price=None, scanned_score=None, category=None,
              material=None, assumed_price=None, department=None,
-             scanned_durability=None):
+             scanned_durability=None, relax=0):
     """Score one search result. Returns a dict to show, or None to drop it.
 
     Pure function, no network — this is the part worth testing.
+
+    relax loosens the PRICE rules only (see RELAX_* above). 0 is the strict
+    behaviour and the default.
     """
     source = item.get("source")
 
@@ -355,17 +379,23 @@ def evaluate(item, price=None, scanned_score=None, category=None,
     p = item.get("extracted_price")
 
     # 1. Price. Cheap-and-suspicious is out; expensive has to earn it below.
-    if price is not None and p is not None:
+    #    relax 1 widens the band, relax 2+ drops it.
+    lo, hi = PRICE_FLOOR, PRICE_CEILING
+    if relax == RELAX_WIDER:
+        lo, hi = WIDE_PRICE_FLOOR, WIDE_PRICE_CEILING
+    if relax >= RELAX_ANY_PRICE:
+        pass
+    elif price is not None and p is not None:
         # Pre-owned is cheap because it's pre-owned, not because it's suspect,
         # so the floor doesn't apply to it. The ceiling still does.
-        floor = 0 if brands.is_resale(source) else price * PRICE_FLOOR
-        if p < floor or p > price * PRICE_CEILING:
+        floor = 0 if brands.is_resale(source) else price * lo
+        if p < floor or p > price * hi:
             return None
     # 1b. No price given: keep to a sensible range for this kind of garment.
     #     Only the ceiling — a cheaper well-made piece is fine when we don't know
     #     what they'd pay.
     elif price is None and assumed_price and p is not None:
-        if p > assumed_price * PRICE_CEILING:
+        if p > assumed_price * hi:
             return None
 
     # 2. Must state its composition. allow_bare=False means the word "cotton"
@@ -401,11 +431,15 @@ def evaluate(item, price=None, scanned_score=None, category=None,
         return None
 
     # 5. And is genuinely an upgrade on what they're holding.
+    #    (At the last level a piece made just as well is allowed, and labelled.)
+    as_good = False
     if scanned_score is not None and score <= scanned_score:
-        return None
+        if relax < RELAX_AS_GOOD or score < scanned_score:
+            return None
+        as_good = True
 
     # 6. If it costs meaningfully more, it must be cheaper per wear.
-    if price and p and p > price * FREE_PRICE_HEADROOM:
+    if relax == 0 and price and p and p > price * FREE_PRICE_HEADROOM:
         a = fabric.cost_per_wear(p, durability)
         s = fabric.cost_per_wear(price, scan_dur)
         if a is None or s is None or a >= s:
@@ -428,13 +462,17 @@ def evaluate(item, price=None, scanned_score=None, category=None,
         "image_url": item.get("thumbnail"),
         "known_maker": maker is not None,
         "tier": brands.tier(source, item.get("title")),
-        "value_note": _value_line(p, durability, price, scan_dur),
+        "value_note": ("Made just as well as yours." if as_good
+                       else _value_line(p, durability, price, scan_dur)),
+        # "better" (passed every rule), "pricier" (better made, outside the
+        # usual price range) or "as_good" (made just as well, not better).
+        "fit": "as_good" if as_good else ("pricier" if relax else "better"),
     }
 
 
 def search_alternatives(category=None, name=None, price=None,
                         scanned_score=None, limit=4, look=None, material=None,
-                        department=None, scanned_durability=None):
+                        department=None, scanned_durability=None, taste=None):
     """Search several angles, keep only what we can vouch for, best first.
 
     The queries run CONCURRENTLY and under a total time budget. Sequentially
@@ -455,6 +493,13 @@ def search_alternatives(category=None, name=None, price=None,
     budget_ratio = (price / typical) if (price and typical) else None
     queries = brands.build_queries(subject, look=look, material=material,
                                    budget_ratio=budget_ratio)
+    # v23: one extra search for the brand they keep coming back to. Its pieces
+    # are judged like any other; most will not pass, and that is fine.
+    taste_words, liked = clean_taste(taste)
+    if liked and material not in ("real leather", "faux leather"):
+        extra = f"{liked[0]} {subject}"
+        if extra not in queries:
+            queries.append(extra)
     deadline = time.time() + SEARCH_BUDGET
 
     raw = []
@@ -489,20 +534,32 @@ def search_alternatives(category=None, name=None, price=None,
         seen.add(key)
         if link:
             seen.add(link)
-        result = evaluate(item, price=price, scanned_score=scanned_score,
-                          category=subject, material=material,
-                          assumed_price=assumed, department=department,
-                          scanned_durability=scanned_durability)
-        if result:
-            result["match"] = look_match(item, look)
-            kept.append(result)
+        # Strict first. Only if it fails is the price loosened, a step at a time,
+        # so every piece carries the tightest level it passed.
+        for level in (0, RELAX_WIDER, RELAX_ANY_PRICE, RELAX_AS_GOOD):
+            result = evaluate(item, price=price, scanned_score=scanned_score,
+                              category=subject, material=material,
+                              assumed_price=assumed, department=department,
+                              scanned_durability=scanned_durability, relax=level)
+            if result:
+                result["match"] = look_match(item, look)
+                result["_level"] = level
+                result["_taste"] = taste_match(item, result, taste_words, liked)
+                result["_gap"] = _price_gap(result.get("price"), price or assumed)
+                kept.append(result)
+                break
 
     # Everything still standing has already cleared the quality gate inside
     # evaluate(), so ordering among survivors can serve taste and discovery
     # without weakening the promise. Closest in shape first (bucketed, so noise
     # doesn't reshuffle near-ties), then tier, then raw score.
-    kept.sort(key=lambda r: (round(r["match"], 1), r["tier"], r["score"]),
+    kept.sort(key=lambda r: (round(r["match"], 1), round(r["_taste"], 1),
+                             r["tier"], r["score"]),
               reverse=True)
+    # Pieces that passed the strict price rules always come first. Loosened
+    # picks only fill the slots left over, nearest in price first. (Stable sort,
+    # so the order above still decides ties.)
+    kept.sort(key=lambda r: (r["_level"], round(r["_gap"], 1) if r["_level"] else 0))
 
     # Then cap the mall brands, so one chain with a huge feed can't own the list.
     out, mainstream_used, preowned_used, per_brand = [], 0, 0, {}
@@ -523,8 +580,82 @@ def search_alternatives(category=None, name=None, price=None,
         if len(out) == limit:
             break
 
-    # Deliberately NOT backfilled. If the cap leaves two results instead of four,
-    # two is the honest answer — the same reasoning that already returns an empty
-    # list rather than padding it with items whose fabric we can't read. Filling
-    # the shelf with mall brands is exactly the failure this tier exists to stop.
+    # Never backfilled with mall brands or with pieces whose fabric we can't
+    # read. The only backfill is the price loosening above, and it is labelled.
+    for r in out:
+        r.pop("_level", None)
+        r["for_you"] = r.pop("_taste", 0) >= 0.25
+        r.pop("_gap", None)
     return out
+
+
+# ------------------------------------------------------------------- taste
+# v23. Filo learns what a shopper is drawn to, ON THEIR PHONE, from what they
+# scan, heart and click through to. The app sends a small summary with a scan:
+# a few style words and a few brand names. Nothing else, and no account ID.
+#
+# What taste may do: put the pieces closest to their taste FIRST, and add one
+# search for a brand they keep coming back to.
+# What taste may never do: change a score, let a piece past any rule, or drop a
+# piece. Every option still clears every test in evaluate().
+import vision as _vision
+
+TASTE_WORDS = (_vision.SILHOUETTE | _vision.NECKLINE | _vision.TEXTURE) | {
+    "wide-leg", "high-rise", "low-rise", "midi", "mini", "maxi", "tailored",
+    "pleated", "vintage", "minimal", "striped", "linen", "wool", "cashmere",
+    "silk", "cotton", "leather", "suede", "knit", "structured", "flowy",
+    "barrel", "bootcut", "flare", "baggy", "sheer", "lace", "quilted",
+}
+MAX_TASTE_WORDS = 6
+MAX_TASTE_BRANDS = 5
+
+
+def clean_taste(taste):
+    """(words, brands) from whatever the app sent. Unknown words are dropped, so
+    this can only ever be a list of plain style words and short brand names."""
+    if not isinstance(taste, dict):
+        return [], []
+    words = [str(w).lower().strip() for w in (taste.get("words") or [])
+             if isinstance(w, str)]
+    words = [w for w in dict.fromkeys(words) if w in TASTE_WORDS][:MAX_TASTE_WORDS]
+    liked = []
+    for b in (taste.get("brands") or []):
+        if not isinstance(b, str):
+            continue
+        b = re.sub(r"[^\w &'.+-]", "", b).strip()
+        if (2 <= len(b) <= 40 and not brands.is_blocked(b)
+                and not brands.is_department_store(b)):
+            liked.append(b)
+    return words, list(dict.fromkeys(liked))[:MAX_TASTE_BRANDS]
+
+
+def taste_match(item, result, words, liked):
+    """0.0 to 1.0: how close this piece is to what they usually go for.
+    RANKING ONLY, like look_match."""
+    if not words and not liked:
+        return 0.0
+    score = 0.0
+    hay = ((result.get("brand") or "") + " " + (result.get("retailer") or "")
+           + " " + (item.get("title") or "")).lower()
+    if any(b.lower() in hay for b in liked):
+        score += 0.5
+    if words:
+        score += 0.5 * look_match(item, words)
+    return score
+
+
+def _price_gap(p, reference):
+    """How far a price is from the shopper's (or the typical one). 0 = same."""
+    import math
+    if not p or not reference:
+        return 9.0
+    return abs(math.log(p / reference))
+
+
+def note_for(alternatives):
+    """A plain line for the app when none of the picks passed the strict rules."""
+    if not alternatives or any(a.get("fit") == "better" for a in alternatives):
+        return None
+    if all(a.get("fit") == "as_good" for a in alternatives):
+        return NOTE_AS_GOOD
+    return NOTE_PRICIER

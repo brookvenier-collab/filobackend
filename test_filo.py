@@ -407,12 +407,81 @@ def test_no_price_still_has_a_range():
     catalog._fetch = lambda q, num=40: coats
     catalog.SERPAPI_KEY = "test"
     alts = catalog.search_alternatives("coat", price=None, scanned_score=7.0)
-    check("no price: $760 coat dropped, $280 kept", [a["brand"] for a in alts], ["A"])
+    # v22: the in-range coat still leads; the pricey one only fills a spare slot,
+    # and is labelled as outside the usual range.
+    check("no price: $280 coat first, $760 only as a labelled extra",
+          [(a["brand"], a["fit"]) for a in alts], [("A", "better"), ("B", "pricier")])
     check("no price: no made-up cost-per-wear line", alts[0]["value_note"], None)
     check("leather gets a leather-sized range",
           catalog.typical_price("jacket", "faux leather"), catalog.TYPICAL_LEATHER_PRICE)
-    check("with a price, the real band still rules",
-          [a["brand"] for a in catalog.search_alternatives("coat", price=600, scanned_score=7.0)], ["B"])
+    priced = catalog.search_alternatives("coat", price=600, scanned_score=7.0)
+    check("with a price, the in-band piece leads",
+          [(a["brand"], a["fit"]) for a in priced], [("B", "better"), ("A", "pricier")])
+
+
+def test_v23_taste():
+    """Taste reorders. It never lets a piece in, and never changes a score."""
+    print("\n=== v23: taste ranks, never filters ===")
+    catalog.SERPAPI_KEY = "test"
+    asked = []
+    tees = [{"title": "Classic Tee 100% Organic Cotton", "extracted_price": 60, "source": "Plainco", "link": "a"},
+            {"title": "Cropped Boxy Tee 100% Organic Cotton", "extracted_price": 60, "source": "Shapeco", "link": "b"},
+            {"title": "Everyday Tee 100% Organic Cotton", "extracted_price": 60, "source": "Lovedlabel", "link": "c"},
+            {"title": "Cropped Boxy Tee 100% Polyester", "extracted_price": 60, "source": "Lovedlabel", "link": "d"}]
+    def fetch(q, num=40):
+        asked.append(q)
+        return tees
+    catalog._fetch = fetch
+    plain = catalog.search_alternatives("t-shirt", price=60, scanned_score=2.2)
+    asked.clear()
+    taste = {"words": ["cropped", "boxy", "DROP TABLE", 7], "brands": ["Lovedlabel", "Shein", "x" * 90]}
+    mine = catalog.search_alternatives("t-shirt", price=60, scanned_score=2.2, taste=taste)
+    check("no taste -> nothing marked for you", any(a["for_you"] for a in plain), False)
+    check("same pieces either way", sorted(a["name"] for a in mine), sorted(a["name"] for a in plain))
+    check("same scores either way", sorted(a["score"] for a in mine), sorted(a["score"] for a in plain))
+    check("their brand and their shape come first", {a["retailer"] for a in mine[:2]}, {"Lovedlabel", "Shapeco"})
+    check("the plain one comes last", mine[-1]["retailer"], "Plainco")
+    check("polyester in their shape from their brand still never shows",
+          any("Polyester" in a["name"] for a in mine), False)
+    check("one extra search for the liked brand", "Lovedlabel t-shirt" in asked, True)
+    words, liked = catalog.clean_taste(taste)
+    check("unknown words are dropped", words, ["cropped", "boxy"])
+    check("blocked and junk brands are dropped", liked, ["Lovedlabel"])
+    check("junk taste is ignored", catalog.clean_taste("hello"), ([], []))
+    check("internal keys are not sent", any(k.startswith("_") for a in mine for k in a), False)
+
+
+def test_v22_always_an_option():
+    """A typed price must not empty the list, and the price can be taken away."""
+    print("\n=== v22: price never empties the list ===")
+    catalog.SERPAPI_KEY = "test"
+    tees = [{"title": "Organic Tee 100% Organic Cotton", "extracted_price": 95, "source": "A", "link": "a"},
+            {"title": "Linen Tee 100% Linen", "extracted_price": 180, "source": "B", "link": "b"},
+            {"title": "Poly Tee 100% Polyester", "extracted_price": 20, "source": "C", "link": "c"}]
+    catalog._fetch = lambda q, num=40: tees
+    # $20 scan: both good tees are far above 2.5x. Before v22 this was empty.
+    alts = catalog.search_alternatives("t-shirt", price=20, scanned_score=2.2)
+    check("price far below the good ones still shows them, nearest first",
+          [a["brand"] for a in alts], ["A", "B"])
+    check("they are labelled as outside the price", {a["fit"] for a in alts}, {"pricier"})
+    check("the app gets a plain line saying so", catalog.note_for(alts), catalog.NOTE_PRICIER)
+    check("plain line has no long dash", "\u2014" in catalog.NOTE_PRICIER + catalog.NOTE_AS_GOOD, False)
+    check("polyester never gets in, at any level", "C" in [a["brand"] for a in alts], False)
+    # Same scan with the price removed: same pieces, nothing hidden.
+    free = catalog.search_alternatives("t-shirt", price=None, scanned_score=2.2)
+    check("price removed -> options still there", sorted(a["brand"] for a in free), ["A", "B"])
+    # In-band picks carry no note.
+    ok = catalog.search_alternatives("t-shirt", price=90, scanned_score=2.2)
+    check("an in-band pick means no note", catalog.note_for(ok), None)
+    # Already holding a good one: equals are offered, and said to be equals.
+    top = max(catalog.evaluate(t, scanned_score=0)["score"] for t in tees[:2])
+    same = catalog.search_alternatives("t-shirt", price=95, scanned_score=top)
+    check("nothing better -> as-good pieces, labelled",
+          {a["fit"] for a in same} <= {"as_good"} and len(same) >= 1, True)
+    check("as-good note", catalog.note_for(same), catalog.NOTE_AS_GOOD)
+    check("a worse piece is never offered", all(a["score"] >= top for a in same), True)
+    check("internal sort keys are not sent to the app",
+          any(k.startswith("_") for a in alts for k in a), False)
 
 
 def test_v11_department_price_fast_accounts():
@@ -862,6 +931,8 @@ if __name__ == "__main__":
     test_affiliate_cannot_bend_the_ranking()
     test_leather_and_garment_type()
     test_no_price_still_has_a_range()
+    test_v22_always_an_option()
+    test_v23_taste()
     test_v11_department_price_fast_accounts()
     test_v12_closet_fund()
     test_v13_evidence_and_rarity()

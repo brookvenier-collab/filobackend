@@ -77,6 +77,11 @@ class Item(BaseModel):
     # One of vision.COLOR; anything else is ignored. Like every look word it
     # widens the search and ranks the results — it never filters a piece out.
     color: Optional[str] = None
+    # v23. What this shopper is drawn to, worked out on their phone:
+    # {"words": ["cropped", "linen"], "brands": ["Sezane"]}. Used only to ORDER
+    # the better made options and add one brand search. Cleaned by
+    # catalog.clean_taste; never stored, never tied to an account.
+    taste: Optional[dict] = None
 
 
 EXTRA_LOOK_PICKS = {"leather"}
@@ -203,6 +208,7 @@ def analyze(req: AnalyzeRequest):
             look=look,
             material=search_material,
             department=department,
+            taste=req.item.taste,
         )
 
         try:
@@ -236,7 +242,8 @@ def analyze(req: AnalyzeRequest):
                            scanned_score=score,
                            category=item.get("category"))
         result["alternatives"] = alternatives
-        result["alternatives_note"] = None
+        # v22: set only when every pick needed the price rules loosened.
+        result["alternatives_note"] = catalog.note_for(alternatives)
     elif not catalog.SERPAPI_KEY:
         result["alternatives_note"] = (
             "Better-made options turn on once product search is connected."
@@ -245,9 +252,9 @@ def analyze(req: AnalyzeRequest):
         # Searched and found nothing we could verify. Say so plainly rather than
         # padding the list with items whose fabric we can't read.
         result["alternatives_note"] = (
-            "Nothing here we'd vouch for. We only show an alternative when the "
-            "listing states its fiber content and it genuinely scores better than "
-            "what you're holding."
+            "We could not find one we would vouch for this time. We only show a "
+            "piece when the shop says what it is made of. Try another colour or "
+            "pick a different type."
         )
 
     return result
