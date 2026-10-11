@@ -966,7 +966,7 @@ def test_v24_colour_changes_the_list_and_hoodies():
     check("picking white puts the white one first", white[0]["name"].startswith("White"), True)
     check("picking cream puts the ivory one first", cream[0]["name"].startswith("Ivory"), True)
     check("picking a colour changes the order", [a["name"] for a in white] != [a["name"] for a in plain], True)
-    check("a colour never drops a piece", len(white), len(plain))
+    check("white picked: only white ones are shown (v25)", [a["name"][:5] for a in white], ["White"])
     check("no red ones: still shows the others", len(red), len(plain))
     check("no red ones: says so", "red" in (catalog.colour_note(red, "red") or ""), True)
     check("white found: no note", catalog.colour_note(white, "white"), None)
@@ -993,6 +993,69 @@ def test_v24_colour_changes_the_list_and_hoodies():
     check("a cotton Stussy hoodie can be shown", kept is not None and kept["brand"], "St\u00fcssy")
 
 
+def test_v25_colour_from_the_photo():
+    print("\n=== v25: the colour comes from the photo; only that colour is shown ===")
+    import io, base64, colour
+    from PIL import Image, ImageDraw
+
+    def photo(rgb):
+        im = Image.new("RGB", (200, 200), (255, 255, 255))
+        ImageDraw.Draw(im).rectangle([45, 25, 155, 180], fill=rgb)
+        b = io.BytesIO(); im.save(b, "JPEG", quality=85)
+        return "data:image/jpeg;base64," + base64.b64encode(b.getvalue()).decode()
+
+    shades = {"black": (22, 22, 24), "white": (246, 245, 243), "cream": (238, 228, 205),
+              "grey": (140, 140, 142), "navy": (28, 36, 70), "blue": (70, 110, 190),
+              "brown": (92, 58, 36), "tan": (196, 160, 115), "green": (85, 107, 60),
+              "red": (200, 30, 35), "burgundy": (105, 25, 40), "pink": (236, 170, 190)}
+    wrong = []
+    for name, rgb in shades.items():
+        found = colour.shares(photo(rgb))
+        if not colour.is_colour(found, name):
+            wrong.append(name + " missed")
+        wrong += [f"{name} read as {o}" for o in shades
+                  if o != name and colour.is_colour(found, o)]
+    check("every chip colour is read off a photo", wrong, [])
+    check("an unreadable photo is 'could not tell'", colour.is_colour(colour.read_image(b"nope"), "white"), None)
+
+    def listing(title, shop, rgb, price):
+        return {"title": title, "source": shop, "extracted_price": price,
+                "product_link": f"https://{shop.lower().replace(' ', '')}.example/p",
+                "thumbnail": photo(rgb)}
+    # No colour in any title, exactly like real shops.
+    listings = [
+        listing("Boxy Cardigan Sweater 100% Merino Wool", "Shop A", shades["black"], 120),
+        listing("Cable Crewneck Sweater 100% Merino Wool", "Shop B", shades["navy"], 110),
+        listing("Relaxed Crewneck Sweater 100% Merino Wool", "Shop C", shades["white"], 300),
+        listing("Fine Knit Sweater 100% Cashmere", "Shop D", shades["cream"], 130),
+    ]
+    real = catalog._fetch
+    catalog._fetch = lambda q, num=40: listings
+    try:
+        ask = lambda c: catalog.search_alternatives(
+            category="women's sweater", price=100, scanned_score=3.0,
+            look=[c] if c else None, colour=c)
+        plain, white, cream, red = ask(None), ask("white"), ask("cream"), ask("red")
+    finally:
+        catalog._fetch = real
+    check("no colour picked: all four", len(plain), 4)
+    check("white picked: only the white one", [a["name"] for a in white], ["Relaxed Crewneck Sweater 100% Merino Wool"])
+    check("cream picked: only the cream one", [a["name"] for a in cream], ["Fine Knit Sweater 100% Cashmere"])
+    check("red picked, none red: the closest, all four", len(red), 4)
+    check("...and it says so", "red" in (catalog.colour_note(red, "red") or ""), True)
+    check("a colour match still passed the quality rules", all(a["score"] >= catalog.QUALITY_FLOOR for a in white), True)
+
+    check("'Man Sweatshirt' is menswear", catalog.department_of("Colorful Standard Man Sweatshirt"), "men")
+    check("wholesale lots are dropped", catalog.evaluate(
+        {"title": "6 Bulk Women's Cotton Oversized Hoodie 100% Cotton", "source": "Shop Z",
+         "extracted_price": 90}, price=100, scanned_score=3.0, category="women's hoodie",
+        relax=catalog.RELAX_ANY_PRICE), None)
+    check("a normal hoodie is not", catalog.evaluate(
+        {"title": "Women's Oversized Hoodie 100% Cotton", "source": "Shop Z",
+         "extracted_price": 90}, price=100, scanned_score=3.0, category="women's hoodie",
+        relax=catalog.RELAX_ANY_PRICE) is not None, True)
+
+
 if __name__ == "__main__":
     test_parser()
     test_scoring()
@@ -1017,6 +1080,7 @@ if __name__ == "__main__":
     test_v20_the_realreal()
     test_v21_breakdown()
     test_v24_colour_changes_the_list_and_hoodies()
+    test_v25_colour_from_the_photo()
     print()
     if FAILS:
         print(f"{len(FAILS)} FAILURES")

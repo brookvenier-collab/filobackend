@@ -34,6 +34,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import fabric
 import brands
+import colour as _colour
 
 log = logging.getLogger("filo.catalog")
 
@@ -157,8 +158,12 @@ TYPICAL_FALLBACK = 80
 # A women's scan was being answered with menswear. The department now filters:
 # a listing that says it is for the other department is dropped. A listing that
 # names neither (most do) is kept — unisex and untagged pieces are fair answers.
-_WOMEN = re.compile(r"\b(women'?s?|womens|ladies|lady's|female|girls?)\b")
-_MEN = re.compile(r"\b(men'?s?|mens|male|boys?|gents?)\b")
+_WOMEN = re.compile(r"\b(women'?s?|womens|woman'?s?|ladies|lady's|female|girls?)\b")
+_MEN = re.compile(r"\b(men'?s?|mens|man'?s?|male|boys?|gents?)\b")
+
+
+_BULK = re.compile(r"\b(bulk|wholesale|lot of \d+|pack of \d+|\d+[\s-]?pack|"
+                   r"\d+\s?(pcs|pieces|pk)|dozen)\b")
 
 
 def department_of(text):
@@ -408,6 +413,11 @@ def evaluate(item, price=None, scanned_score=None, category=None,
     if brands.looks_like_knockoff(source, item.get("title")):
         return None
 
+    # 0a3. Wholesale lots are not a piece of clothing someone can buy to wear
+    #      ("6 Bulk Women's Cotton Oversized Hoodie" showed up on 11 Oct).
+    if _BULK.search((item.get("title") or "").lower()):
+        return None
+
     # 0b. It has to be the same kind of garment. A jacket is answered with a
     #     jacket, never a sweater, however well made the sweater is.
     if not same_garment(item.get("title"), category):
@@ -606,8 +616,20 @@ def search_alternatives(category=None, name=None, price=None,
     # v24. A colour the shopper tapped is a direct ask, so pieces in that colour
     # go first. Every one of them has still passed the quality rules above, and
     # a loosened price is still labelled. With no colour picked this does nothing.
+    #
+    # v25. Shops rarely put the colour in the title, so the words alone found
+    # nothing. Look at each piece's own photo (colour.py). When at least one
+    # piece is the colour they asked for, ONLY those are shown: that is what
+    # tapping a colour means. When none is, the closest are shown and the app
+    # says so (colour_note).
     if colour:
-        kept.sort(key=lambda r: 0 if r["colour_match"] else 1)
+        seen = _colour.check_all([r.get("image_url") for r in kept], colour)
+        for r in kept:
+            r["colour_match"] = bool(r["colour_match"] or seen.get(r.get("image_url")))
+            r["colour_read"] = _colour.describe(r.get("image_url"))
+        matches = [r for r in kept if r["colour_match"]]
+        if matches:
+            kept = matches
 
     # Then cap the mall brands, so one chain with a huge feed can't own the list.
     out, mainstream_used, preowned_used, per_brand = [], 0, 0, {}

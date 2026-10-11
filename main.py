@@ -74,8 +74,10 @@ class Item(BaseModel):
     # construction tokens, then discarded like the garment photo.
     seam_image: Optional[str] = None
     # v16. The colour the shopper picked on the verdict screen ("black", "navy").
-    # One of vision.COLOR; anything else is ignored. Like every look word it
-    # widens the search and ranks the results — it never filters a piece out.
+    # One of vision.COLOR; anything else is ignored. It goes on the searches,
+    # and (v25) each piece's photo is checked: when any piece is that colour,
+    # only those are shown; when none is, the closest are shown with a note.
+    # It never changes a score or lets a piece past the quality rules.
     color: Optional[str] = None
     # v23. What this shopper is drawn to, worked out on their phone:
     # {"words": ["cropped", "linen"], "brands": ["Sezane"]}. Used only to ORDER
