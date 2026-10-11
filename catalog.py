@@ -321,6 +321,43 @@ def _value_line(alt_price, alt_score, price, scanned_score):
     return f"Better made and no more expensive — ${a:.2f} a wear."
 
 
+# v24. A colour the shopper picked has to be matched as a WORD, with the other
+# names shops use for it. The old 4-letter stem match read "tailored" as red
+# and "standard" as tan, and missed "gray", "ivory" and "camel" altogether.
+COLOUR_WORDS = {
+    "black": ["black", "noir", "onyx"],
+    "white": ["white", "optic white", "blanc"],
+    "cream": ["cream", "ivory", "ecru", "off white", "off-white",
+              "oatmeal", "chalk", "eggshell", "vanilla"],
+    "ivory": ["ivory", "cream", "ecru", "off white", "off-white"],
+    "grey": ["grey", "gray", "charcoal", "heather grey", "heather gray", "slate",
+             "graphite", "anthracite"],
+    "charcoal": ["charcoal", "anthracite", "graphite"],
+    "navy": ["navy", "midnight"],
+    "blue": ["blue", "cobalt", "indigo", "azure", "denim blue"],
+    "brown": ["brown", "chocolate", "espresso", "mocha", "coffee", "cocoa",
+              "chestnut", "walnut", "cognac"],
+    "tan": ["tan", "camel", "beige", "khaki", "sand", "taupe", "caramel"],
+    "beige": ["beige", "sand", "taupe", "tan"],
+    "camel": ["camel", "tan", "caramel"],
+    "green": ["green", "olive", "sage", "forest", "khaki green", "moss", "emerald"],
+    "red": ["red", "scarlet", "crimson", "cherry", "tomato"],
+    "burgundy": ["burgundy", "oxblood", "wine", "maroon", "bordeaux", "merlot",
+                 "plum"],
+    "pink": ["pink", "blush", "rose", "fuchsia"],
+}
+
+
+def colour_match(item, colour):
+    """True when the listing says it is this colour. Whole words only."""
+    c = (colour or "").lower().strip()
+    if not c:
+        return False
+    text = _describe(item).lower()
+    return any(re.search(r"(?<![a-z])" + re.escape(w) + r"(?![a-z])", text)
+               for w in COLOUR_WORDS.get(c, [c]))
+
+
 def look_match(item, look):
     """How much of the scanned garment's shape this listing echoes, 0.0-1.0.
 
@@ -334,6 +371,10 @@ def look_match(item, look):
     text = _describe(item).lower()
     hits = 0
     for word in look:
+        if word in _vision.COLOR:
+            # Colours are whole words ("red" is not in "tailored").
+            hits += 1 if colour_match(item, word) else 0
+            continue
         stem = word.split("-")[0][:4]       # "chunky-knit" -> "chun", "cropped" -> "crop"
         if stem and stem in text:
             hits += 1
@@ -472,7 +513,8 @@ def evaluate(item, price=None, scanned_score=None, category=None,
 
 def search_alternatives(category=None, name=None, price=None,
                         scanned_score=None, limit=4, look=None, material=None,
-                        department=None, scanned_durability=None, taste=None):
+                        department=None, scanned_durability=None, taste=None,
+                        colour=None):
     """Search several angles, keep only what we can vouch for, best first.
 
     The queries run CONCURRENTLY and under a total time budget. Sequentially
@@ -492,7 +534,7 @@ def search_alternatives(category=None, name=None, price=None,
     typical = typical_price(subject, material)
     budget_ratio = (price / typical) if (price and typical) else None
     queries = brands.build_queries(subject, look=look, material=material,
-                                   budget_ratio=budget_ratio)
+                                   budget_ratio=budget_ratio, colour=colour)
     # v23: one extra search for the brand they keep coming back to. Its pieces
     # are judged like any other; most will not pass, and that is fine.
     taste_words, liked = clean_taste(taste)
@@ -543,6 +585,7 @@ def search_alternatives(category=None, name=None, price=None,
                               scanned_durability=scanned_durability, relax=level)
             if result:
                 result["match"] = look_match(item, look)
+                result["colour_match"] = colour_match(item, colour)
                 result["_level"] = level
                 result["_taste"] = taste_match(item, result, taste_words, liked)
                 result["_gap"] = _price_gap(result.get("price"), price or assumed)
@@ -560,6 +603,11 @@ def search_alternatives(category=None, name=None, price=None,
     # picks only fill the slots left over, nearest in price first. (Stable sort,
     # so the order above still decides ties.)
     kept.sort(key=lambda r: (r["_level"], round(r["_gap"], 1) if r["_level"] else 0))
+    # v24. A colour the shopper tapped is a direct ask, so pieces in that colour
+    # go first. Every one of them has still passed the quality rules above, and
+    # a loosened price is still labelled. With no colour picked this does nothing.
+    if colour:
+        kept.sort(key=lambda r: 0 if r["colour_match"] else 1)
 
     # Then cap the mall brands, so one chain with a huge feed can't own the list.
     out, mainstream_used, preowned_used, per_brand = [], 0, 0, {}
@@ -650,6 +698,16 @@ def _price_gap(p, reference):
     if not p or not reference:
         return 9.0
     return abs(math.log(p / reference))
+
+
+def colour_note(alternatives, colour):
+    """Said when a colour was picked and none of the picks are that colour."""
+    if not colour or not alternatives:
+        return None
+    if any(a.get("colour_match") for a in alternatives):
+        return None
+    return (f"We could not find a {colour} one we would vouch for. "
+            "These are the closest.")
 
 
 def note_for(alternatives):

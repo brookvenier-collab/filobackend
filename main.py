@@ -209,6 +209,7 @@ def analyze(req: AnalyzeRequest):
             material=search_material,
             department=department,
             taste=req.item.taste,
+            colour=chosen if chosen in vision.COLOR else None,
         )
 
         try:
@@ -243,7 +244,10 @@ def analyze(req: AnalyzeRequest):
                            category=item.get("category"))
         result["alternatives"] = alternatives
         # v22: set only when every pick needed the price rules loosened.
-        result["alternatives_note"] = catalog.note_for(alternatives)
+        result["alternatives_note"] = (
+            catalog.note_for(alternatives)
+            or catalog.colour_note(alternatives,
+                                   chosen if chosen in vision.COLOR else None))
     elif not catalog.SERPAPI_KEY:
         result["alternatives_note"] = (
             "Better-made options turn on once product search is connected."

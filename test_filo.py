@@ -919,6 +919,80 @@ def test_v21_breakdown():
           sorted(set(fabric.FIBER_QUALITY) - set(breakdown.FIBRES)), [])
 
 
+def test_v24_colour_changes_the_list_and_hoodies():
+    print("\n=== v24: a picked colour changes the list; hoodies and streetwear ===")
+    import brands
+    check("red is not in tailored", catalog.colour_match(
+        {"title": "Tailored Wool Jacket 100% Wool"}, "red"), False)
+    check("tan is not in standard", catalog.colour_match(
+        {"title": "Standard Fit Jacket 100% Wool"}, "tan"), False)
+    check("ivory counts as cream", catalog.colour_match(
+        {"title": "Ivory Wool Jacket 100% Wool"}, "cream"), True)
+    check("gray counts as grey", catalog.colour_match(
+        {"title": "Gray Wool Sweater 100% Merino Wool"}, "grey"), True)
+
+    qs = brands.build_queries("women's sweater", look=["white"], colour="white")
+    check("colour is on all but one search", sum("white" in q for q in qs), len(qs) - 1)
+    check("still never more than five", len(qs) <= 5, True)
+    check("no colour, no change", brands.build_queries("women's sweater"),
+          brands.build_queries("women's sweater", colour=None))
+    lq = brands.build_queries("women's jacket", look=["cream"], material="real leather",
+                              colour="cream")
+    check("leather searches carry the colour too", sum("cream" in q for q in lq) >= len(lq) - 1, True)
+
+    listings = [
+        {"title": "Black Merino Sweater 100% Merino Wool", "source": "Shop A",
+         "extracted_price": 120, "product_link": "https://a.example/1"},
+        {"title": "Navy Merino Sweater 100% Merino Wool", "source": "Shop B",
+         "extracted_price": 110, "product_link": "https://b.example/1"},
+        {"title": "White Merino Sweater 100% Merino Wool", "source": "Shop C",
+         "extracted_price": 300, "product_link": "https://c.example/1"},
+        {"title": "Ivory Cashmere Sweater 100% Cashmere", "source": "Shop D",
+         "extracted_price": 130, "product_link": "https://d.example/1"},
+    ]
+    real_fetch, real_key = catalog._fetch, catalog.SERPAPI_KEY
+    catalog._fetch = lambda q, num=40: listings
+    try:
+        plain = catalog.search_alternatives(category="women's sweater", price=100,
+                                            scanned_score=3.0)
+        white = catalog.search_alternatives(category="women's sweater", price=100,
+                                            scanned_score=3.0, look=["white"], colour="white")
+        cream = catalog.search_alternatives(category="women's sweater", price=100,
+                                            scanned_score=3.0, look=["cream"], colour="cream")
+        red = catalog.search_alternatives(category="women's sweater", price=100,
+                                          scanned_score=3.0, look=["red"], colour="red")
+    finally:
+        catalog._fetch, catalog.SERPAPI_KEY = real_fetch, real_key
+    check("picking white puts the white one first", white[0]["name"].startswith("White"), True)
+    check("picking cream puts the ivory one first", cream[0]["name"].startswith("Ivory"), True)
+    check("picking a colour changes the order", [a["name"] for a in white] != [a["name"] for a in plain], True)
+    check("a colour never drops a piece", len(white), len(plain))
+    check("no red ones: still shows the others", len(red), len(plain))
+    check("no red ones: says so", "red" in (catalog.colour_note(red, "red") or ""), True)
+    check("white found: no note", catalog.colour_note(white, "white"), None)
+    check("no dashes in the note", any(d in catalog.colour_note(red, "red") for d in "\u2014\u2013"), False)
+
+    check("hoodie is its own garment", catalog.garment_group("women's hoodie"), "hoodie")
+    check("a hoodie is answered with a hoodie", catalog.same_garment(
+        "Stussy Stock Logo Hoodie", "women's hoodie"), True)
+    check("...not a crewneck sweater", catalog.same_garment(
+        "Merino Crewneck Sweater", "women's hoodie"), False)
+    hq = brands.build_queries("women's hoodie")
+    check("hoodies get brand searches", any(brands.maker_in(q) for q in hq), True)
+    check("Stussy is searched for hoodies", "stussy" in brands.makers_for("women's hoodie")
+          or len(brands.makers_for("women's hoodie")) == 6, True)
+    check("St\u00fcssy is recognised with the umlaut", brands.maker_in("St\u00fcssy Basic Hoodie"), "stussy")
+    check("a polyester Stussy hoodie is still dropped", catalog.evaluate(
+        {"title": "Stussy Hoodie 100% Polyester", "source": "Stussy",
+         "extracted_price": 120}, price=100, scanned_score=3.0,
+        category="women's hoodie"), None)
+    kept = catalog.evaluate(
+        {"title": "Stussy Hoodie 100% Cotton", "source": "Stussy",
+         "extracted_price": 120}, price=100, scanned_score=3.0,
+        category="women's hoodie", relax=catalog.RELAX_ANY_PRICE)
+    check("a cotton Stussy hoodie can be shown", kept is not None and kept["brand"], "St\u00fcssy")
+
+
 if __name__ == "__main__":
     test_parser()
     test_scoring()
@@ -942,6 +1016,7 @@ if __name__ == "__main__":
     test_v18_budget_knockoffs_cheap_leather()
     test_v20_the_realreal()
     test_v21_breakdown()
+    test_v24_colour_changes_the_list_and_hoodies()
     print()
     if FAILS:
         print(f"{len(FAILS)} FAILURES")

@@ -130,7 +130,7 @@ QUALITY_MAKERS = {
     "people tree":              {"good_at": ["dress", "top", "blouse"],      "note": "80%+ GOTS organic cotton, WFTO fair trade"},
     "q for quinn":              {"good_at": ["socks", "underwear", "basics"], "note": "95–100% organic cotton, RWS merino"},
     "organic basics":           {"good_at": ["basics", "top", "underwear"],  "note": "organic cotton and TENCEL basics"},
-    "colorful standard":        {"good_at": ["top", "sweatshirt", "knit"],   "note": "heavyweight organic cotton"},
+    "colorful standard":        {"good_at": ["top", "sweatshirt", "hoodie", "knit"], "note": "heavyweight organic cotton"},
     "asket":                    {"good_at": ["top", "shirt", "knit"],        "note": "traceable supply chain, heavier weights"},
     "pact":                     {"good_at": ["basics", "top"],               "note": "GOTS organic cotton basics"},
     "harvest & mill":           {"good_at": ["top", "basics"],               "note": "US-grown organic cotton"},
@@ -186,13 +186,24 @@ QUALITY_MAKERS = {
     "nili lotan":               {"good_at": ["trousers", "pants", "shirt", "knit"], "note": "cotton and wool, NY-made"},
     "margaret howell":          {"good_at": ["shirt", "trousers", "knit", "coat"], "note": "British cotton, linen and wool"},
     "cuyana":                   {"good_at": ["knit", "top", "trousers"],    "note": "silk, pima cotton, cashmere"},
+    # Streetwear (added 11 Oct 2026: "brands like Stussy"). Same rule as every
+    # maker here: being listed decides where Filo LOOKS. A hoodie that is mostly
+    # polyester, or does not say what it is made of, is still not shown.
+    "stussy":                   {"good_at": ["hoodie", "sweatshirt", "tee", "t-shirt"], "note": "streetwear, cotton fleece and tees"},
+    "carhartt wip":             {"good_at": ["hoodie", "sweatshirt", "tee", "t-shirt"], "note": "heavyweight cotton sweats"},
+    "aime leon dore":           {"good_at": ["hoodie", "sweatshirt", "knit"], "note": "cotton fleece and knitwear"},
+    "sporty & rich":            {"good_at": ["hoodie", "sweatshirt", "tee", "t-shirt"], "note": "cotton sweats and tees"},
+    "madhappy":                 {"good_at": ["hoodie", "sweatshirt"],        "note": "heavyweight cotton fleece"},
+    "les tien":                 {"good_at": ["hoodie", "sweatshirt"],        "note": "LA-made heavyweight cotton fleece"},
 }
 
 # Roughly what each maker costs, 1 (under ~$100 a piece) to 4 (luxury). Used
 # only to pick which makers to SEARCH for a given budget — a $90 scan shouldn't
 # spend its two brand searches on labels that start at $900, because none of
 # those pieces can be shown anyway. Anyone not listed is level 1.
-PRICE_LEVEL = {'nour hammour': 4, 'acne studios': 4, 'toteme': 4, 'nili lotan': 4, 'margaret howell': 4, 'mackage': 3, 'schott': 3, 'allsaints': 3, 'anine bing': 3, 'st. agni': 3, 'loulou studio': 3, 'harris wharf london': 3, 're/done': 3, 'slvrlake': 3, '&daughter': 3, 'lisa yang': 3, 'jenni kayne': 3, 'la ligne': 3, 'doen': 3, 'posse': 3, 'deadwood': 2, 'the frankie shop': 2, 'soia & kyo': 2, 'agolde': 2, 'citizens of humanity': 2, 'still here': 2, 'babaa': 2, 'sunspel': 2, 'with nothing underneath': 2, 'faithfull the brand': 2, 'reformation': 2, 'sezane': 2, 'cuyana': 2, 'nudie jeans': 2, 'armedangels': 2, 'hessnatur': 2, 'naked & famous': 2, 'icebreaker': 2, 'christy dawn': 2, 'naadam': 1}
+PRICE_LEVEL = {'nour hammour': 4, 'acne studios': 4, 'toteme': 4, 'nili lotan': 4, 'margaret howell': 4, 'mackage': 3, 'schott': 3, 'allsaints': 3, 'anine bing': 3, 'st. agni': 3, 'loulou studio': 3, 'harris wharf london': 3, 're/done': 3, 'slvrlake': 3, '&daughter': 3, 'lisa yang': 3, 'jenni kayne': 3, 'la ligne': 3, 'doen': 3, 'posse': 3, 'deadwood': 2, 'the frankie shop': 2, 'soia & kyo': 2, 'agolde': 2, 'citizens of humanity': 2, 'still here': 2, 'babaa': 2, 'sunspel': 2, 'with nothing underneath': 2, 'faithfull the brand': 2, 'reformation': 2, 'sezane': 2, 'cuyana': 2, 'nudie jeans': 2, 'armedangels': 2, 'hessnatur': 2, 'naked & famous': 2, 'icebreaker': 2, 'christy dawn': 2, 'naadam': 1,
+               'stussy': 2, 'carhartt wip': 2, 'sporty & rich': 2, 'madhappy': 2,
+               'aime leon dore': 3, 'les tien': 3}
 
 # Makers whose listings reliably state the fibre percentages. One brand search
 # always goes to one of these, so a list never comes back empty just because the
@@ -207,6 +218,8 @@ MAKER_ALIASES = {
     "sézane": "sezane", "dôen": "doen", "babaà": "babaa", "totême": "toteme",
     "st agni": "st. agni", "redone": "re/done", "and daughter": "&daughter",
     "all saints": "allsaints", "schott nyc": "schott",
+    "stüssy": "stussy", "aimé leon dore": "aime leon dore",
+    "carhartt work in progress": "carhartt wip",
 }
 
 
@@ -230,6 +243,8 @@ FIBER_UPGRADE = {
     "sweater": "merino wool", "knit": "merino wool", "cardigan": "merino wool",
     "dress": "100% linen", "trousers": "wool", "pants": "wool",
     "jacket": "wool", "coat": "wool",
+    "hoodie": "heavyweight 100% cotton fleece",
+    "sweatshirt": "heavyweight 100% cotton fleece",
 }
 
 
@@ -358,7 +373,8 @@ def display_name(maker):
     """'nour hammour' -> 'Nour Hammour', for showing on the card."""
     special = {"allsaints": "AllSaints", "re/done": "RE/DONE", "&daughter": "&Daughter",
                "slvrlake": "SLVRLAKE", "agolde": "AGOLDE", "st. agni": "St. Agni",
-               "q for quinn": "Q for Quinn"}
+               "q for quinn": "Q for Quinn", "stussy": "Stüssy",
+               "carhartt wip": "Carhartt WIP", "aime leon dore": "Aimé Leon Dore"}
     return special.get(maker, " ".join(w.capitalize() for w in maker.split()))
 
 
@@ -420,7 +436,25 @@ def fiber_upgrade_for(category):
     return "100% organic cotton"
 
 
-def build_queries(category, max_queries=5, look=None, material=None, budget_ratio=None):
+def _with_colour(queries, colour, leave_wide):
+    """v24. Put the picked colour on every search but one. Before this the
+    colour was on one or two of the five searches, so most of what came back
+    was in other colours and picking a colour barely changed the list. One
+    search stays wide so a rare colour still returns something to show."""
+    c = (colour or "").strip().lower()
+    if not c:
+        return queries
+    out = []
+    for i, q in enumerate(queries):
+        if i == leave_wide or c in q.lower().split():
+            out.append(q)
+        else:
+            out.append(f"{q} {c}")
+    return out
+
+
+def build_queries(category, max_queries=5, look=None, material=None, budget_ratio=None,
+                  colour=None):
     """Several angles at the same shelf, because one generic query only ever
     returns the shops with the biggest product feeds.
 
@@ -463,7 +497,8 @@ def build_queries(category, max_queries=5, look=None, material=None, budget_rati
         # Only makers that actually work in leather ("leather" in good_at).
         for maker in makers_for("leather", budget_ratio)[:max_queries - len(queries)]:
             queries.append(f"{maker} {noun}")
-        return queries[:max_queries]
+        queries = queries[:max_queries]
+        return _with_colour(queries, colour, leave_wide=len(queries) - 1)
 
     # The shape goes on the fibre-led query (the one that returns the most) and
     # on one brand-led query. Leaving a cert-led query un-narrowed keeps a wide
@@ -483,7 +518,7 @@ def build_queries(category, max_queries=5, look=None, material=None, budget_rati
             queries.append(f"{maker} {cat} {shape}")
         else:
             queries.append(f"{maker} {cat}")
-    return queries[:max_queries]
+    return _with_colour(queries[:max_queries], colour, leave_wide=1)
 
 
 def quality_sources_from_data(min_score=7.0, limit=40):
