@@ -1045,6 +1045,27 @@ def test_v25_colour_from_the_photo():
     check("...and it says so", "red" in (catalog.colour_note(red, "red") or ""), True)
     check("a colour match still passed the quality rules", all(a["score"] >= catalog.QUALITY_FLOOR for a in white), True)
 
+    # A title that lists other colours must not beat the photo.
+    lists = [listing("Hoodie Sweater in black grey or red 100% Merino Wool", "Shop R", shades["red"], 120),
+             listing("Plain Sweater 100% Merino Wool", "Shop G", shades["grey"], 120)]
+    catalog._fetch = lambda q, num=40: lists
+    try:
+        grey = catalog.search_alternatives(category="women's sweater", price=100,
+                                           scanned_score=3.0, look=["grey"], colour="grey")
+    finally:
+        catalog._fetch = real
+    check("a red piece whose title says grey is not grey", [a["retailer"] for a in grey], ["Shop G"])
+    ev = lambda **kw: catalog.evaluate(dict({"source": "Shop Z", "extracted_price": 90}, **kw),
+                                       price=100, scanned_score=3.0, category="women's shirt",
+                                       department="women", relax=catalog.RELAX_ANY_PRICE)
+    check("menswear named only in the description is dropped",
+          ev(title="Oxford Shirt 100% Cotton", snippet="A men's classic fit shirt"), None)
+    check("a women's description is kept",
+          ev(title="Oxford Shirt 100% Cotton", snippet="Women's relaxed fit") is not None, True)
+    check("no department anywhere is kept", ev(title="Oxford Shirt 100% Cotton") is not None, True)
+    check("a Macy's house label via an aggregator is dropped",
+          ev(title="Women's 100% Linen Shirt, Created For Macy's", source="ModeSens"), None)
+
     check("'Man Sweatshirt' is menswear", catalog.department_of("Colorful Standard Man Sweatshirt"), "men")
     check("wholesale lots are dropped", catalog.evaluate(
         {"title": "6 Bulk Women's Cotton Oversized Hoodie 100% Cotton", "source": "Shop Z",

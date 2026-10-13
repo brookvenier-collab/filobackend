@@ -162,6 +162,12 @@ _WOMEN = re.compile(r"\b(women'?s?|womens|woman'?s?|ladies|lady's|female|girls?)
 _MEN = re.compile(r"\b(men'?s?|mens|man'?s?|male|boys?|gents?)\b")
 
 
+# Department store names that are safe to look for inside a TITLE. Short ones
+# like "ross" and "target" are left out: they are ordinary words there.
+_HOUSE_LABEL_NAMES = {"macy's", "macys", "kohl's", "kohls", "jcpenney", "jc penney",
+                      "walmart", "dillard's", "dillards", "nordstrom rack",
+                      "saks off 5th", "tj maxx", "tjmaxx", "marshalls"}
+
 _BULK = re.compile(r"\b(bulk|wholesale|lot of \d+|pack of \d+|\d+[\s-]?pack|"
                    r"\d+\s?(pcs|pieces|pk)|dozen)\b")
 
@@ -407,6 +413,11 @@ def evaluate(item, price=None, scanned_score=None, category=None,
     maker = brands.maker_in(source, item.get("title"))
     if maker is None and brands.is_department_store(source):
         return None
+    # v25.1. The same house-label piece relisted by an aggregator ("Women's
+    # 100% Linen Shirt, Created For Macy's" sold via ModeSens) is still that
+    # department store's house label.
+    if maker is None and brands._has_name(item.get("title"), _HOUSE_LABEL_NAMES):
+        return None
 
     # 0a2. Never a knock-off. A luxury name on a listing from a shop that isn't
     #      the house or an authorised retailer is not something Filo links to.
@@ -425,6 +436,10 @@ def evaluate(item, price=None, scanned_score=None, category=None,
 
     # 0c. And for the right department. No menswear on a women's scan.
     if not same_department(item.get("title"), department):
+        return None
+    # v25.1. The title often doesn't say; the shop's own description does.
+    # Only a description that names the OTHER department and not this one drops it.
+    if department and not same_department(_describe(item), department):
         return None
 
     p = item.get("extracted_price")
@@ -625,7 +640,11 @@ def search_alternatives(category=None, name=None, price=None,
     if colour:
         seen = _colour.check_all([r.get("image_url") for r in kept], colour)
         for r in kept:
-            r["colour_match"] = bool(r["colour_match"] or seen.get(r.get("image_url")))
+            # The photo decides when it could be read. A title that lists every
+            # colour the piece comes in ("black, grey, red") is not proof: a red
+            # hoodie was shown as grey that way. Words only count with no photo.
+            verdict = seen.get(r.get("image_url"))
+            r["colour_match"] = bool(r["colour_match"] if verdict is None else verdict)
             r["colour_read"] = _colour.describe(r.get("image_url"))
         matches = [r for r in kept if r["colour_match"]]
         if matches:
