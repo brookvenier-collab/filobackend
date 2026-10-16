@@ -317,10 +317,11 @@ def _describe(item):
                     ("title", "snippet", "description", "extensions"))
 
 
-def _value_line(alt_price, alt_score, price, scanned_score):
-    """The sentence that justifies paying more, in cost-per-wear."""
-    a = fabric.cost_per_wear(alt_price, alt_score)
-    s = fabric.cost_per_wear(price, scanned_score)
+def _value_line(alt_price, alt_wears, price, scanned_wears):
+    """The sentence that justifies paying more, in cost-per-wear.
+    Both wears come from fabric.lifespan() (v26), never from the score."""
+    a = fabric.cost_per_wear(alt_price, alt_wears)
+    s = fabric.cost_per_wear(price, scanned_wears)
     if a is None or s is None:
         return None
     if alt_price and price and alt_price > price:
@@ -394,7 +395,7 @@ def look_match(item, look):
 
 def evaluate(item, price=None, scanned_score=None, category=None,
              material=None, assumed_price=None, department=None,
-             scanned_durability=None, relax=0):
+             scanned_durability=None, relax=0, scanned_wears=None):
     """Score one search result. Returns a dict to show, or None to drop it.
 
     Pure function, no network — this is the part worth testing.
@@ -474,7 +475,9 @@ def evaluate(item, price=None, scanned_score=None, category=None,
     # lasts is not — a 100% wool coat wears like wool whether or not the listing
     # shows its seams — so cost-per-wear uses the uncapped read on both sides.
     durability = detail["uncapped"]
-    scan_dur = scanned_durability if scanned_durability is not None else scanned_score
+    # v26: cost-per-wear compares like with like: both sides from
+    # fabric.lifespan(), for the garment type the shopper scanned.
+    alt_wears = fabric.expected_wears(_describe(item), garment_group(category))
 
     # 3. Not mostly plastic.
     if fabric.synthetic_pct(matched) >= MAX_SYNTHETIC:
@@ -506,8 +509,8 @@ def evaluate(item, price=None, scanned_score=None, category=None,
 
     # 6. If it costs meaningfully more, it must be cheaper per wear.
     if relax == 0 and price and p and p > price * FREE_PRICE_HEADROOM:
-        a = fabric.cost_per_wear(p, durability)
-        s = fabric.cost_per_wear(price, scan_dur)
+        a = fabric.cost_per_wear(p, alt_wears)
+        s = fabric.cost_per_wear(price, scanned_wears)
         if a is None or s is None or a >= s:
             return None
 
@@ -529,7 +532,7 @@ def evaluate(item, price=None, scanned_score=None, category=None,
         "known_maker": maker is not None,
         "tier": brands.tier(source, item.get("title")),
         "value_note": ("Made just as well as yours." if as_good
-                       else _value_line(p, durability, price, scan_dur)),
+                       else _value_line(p, alt_wears, price, scanned_wears)),
         # "better" (passed every rule), "pricier" (better made, outside the
         # usual price range) or "as_good" (made just as well, not better).
         "fit": "as_good" if as_good else ("pricier" if relax else "better"),
@@ -539,7 +542,7 @@ def evaluate(item, price=None, scanned_score=None, category=None,
 def search_alternatives(category=None, name=None, price=None,
                         scanned_score=None, limit=4, look=None, material=None,
                         department=None, scanned_durability=None, taste=None,
-                        colour=None):
+                        colour=None, scanned_wears=None):
     """Search several angles, keep only what we can vouch for, best first.
 
     The queries run CONCURRENTLY and under a total time budget. Sequentially
@@ -607,7 +610,8 @@ def search_alternatives(category=None, name=None, price=None,
             result = evaluate(item, price=price, scanned_score=scanned_score,
                               category=subject, material=material,
                               assumed_price=assumed, department=department,
-                              scanned_durability=scanned_durability, relax=level)
+                              scanned_durability=scanned_durability, relax=level,
+                              scanned_wears=scanned_wears)
             if result:
                 result["match"] = look_match(item, look)
                 result["colour_match"] = colour_match(item, colour)

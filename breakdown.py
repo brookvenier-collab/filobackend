@@ -178,25 +178,24 @@ def build(composition, construction=None, result=None):
                                "edges that are folded away or wrapped. Loose threads and "
                                "bunched seams are bad signs."})
 
-    life = result.get("durability", result.get("score"))
     material = result.get("material")
+    life = result.get("lifespan")
     if material == "real leather":
         rows.append(_life("good", "good", "Decades with basic care."))
     elif material == "faux leather":
         rows.append(_life("bad", "poor", "Expect cracking within a couple of years."))
-    elif life >= 8:
-        rows.append(_life("good", "good", "Years of wear. 50 or more washes with care."))
-    elif life >= 6:
-        rows.append(_life("good", "ok", "Should hold up for about 30 to 50 washes."))
-    elif life >= 4.5:
-        rows.append(_life("bad", "ok", "About 15 to 30 washes before it shows wear."))
-    else:
-        rows.append(_life("bad", "poor", "Likely to pill or lose shape within 5 to 10 washes."))
+    elif life:
+        # v26: from fabric.lifespan(), the sourced model. Good or bad is judged
+        # against the usual life for this kind of piece (multiplier 1.0).
+        m = life.get("multiplier", 1.0)
+        side, level = ("good", "good") if m >= 1.1 else \
+                      (("bad", "poor") if m < 0.95 else ("good", "ok"))
+        rows.append(_life(side, level, life["line"], life.get("because")))
     return rows
 
 
-def _life(side, level, line):
+def _life(side, level, line, because=None):
+    detail = ((because + " ") if because else "") + \
+        "This is an estimate. How you wash and wear it changes the real number."
     return {"side": side, "level": level, "icon": "clock", "title": "How long it lasts",
-            "line": line,
-            "detail": "This is an estimate from the fabric. How you wash and wear it "
-                      "changes the real number."}
+            "line": line, "detail": detail}

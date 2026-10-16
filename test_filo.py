@@ -46,12 +46,16 @@ def test_parser():
 
 
 def test_scoring():
-    print("\n=== scoring: unchanged for known inputs ===")
+    # v27: values from the sourced, named-part score (fabric.fibre_parts).
+    # Were 5.4 / 2.2 / 7.9 / 5.2 under the hand-set table.
+    print("\n=== scoring: known inputs (v27 named parts) ===")
     for comp, want in [
-        ("60% Cotton, 40% Polyester", 5.4),
-        ("100% Polyester", 2.2),
-        ("100% Linen", 7.9),   # fibre-only tags top out at 7.9 (v13)
-        ("Top 55% Cotton 45% Polyester", 5.2),
+        ("60% Cotton, 40% Polyester", 6.0),
+        ("100% Polyester", 4.5),
+        ("100% Linen", 7.5),   # no lifespan data for linen; comfort only
+        ("Top 55% Cotton 45% Polyester", 5.9),
+        ("100% Cotton", 7.0),  # the reference
+        ("100% Wool", 7.9),    # 8.4 uncapped, held at the tag-only cap
     ]:
         check(comp, fabric.quality_score(comp)[0], want)
 
@@ -114,23 +118,83 @@ def test_no_fast_fashion():
 
 def test_price_earns_itself():
     """A piece may cost more than what's in their hands only if it is cheaper
-    per wear. The ceiling stops absurdity regardless."""
+    per wear. Both sides now come from fabric.lifespan() (v26), so fibre alone
+    rarely justifies a big price jump: the evidence doesn't show linen lasting
+    five times longer than a blend."""
     print("\n=== price has to earn itself in cost-per-wear ===")
-    scanned = fabric.quality_score("60% Cotton, 40% Polyester")[0]   # 5.4 → 25 wears
+    scanned = fabric.quality_score("60% Cotton, 40% Polyester")[0]
+    scanned_wears = fabric.expected_wears("60% Cotton, 40% Polyester", "t-shirt")
 
     for label, item, expect_kept in [
-        ("linen $150 — 1.9x but $0.75/wear",  {"title": "Shirt 100% Linen", "extracted_price": 150, "source": "M"}, True),
-        ("cotton $140 — 1.8x, $1.17/wear",    {"title": "Tee 100% Cotton", "extracted_price": 140, "source": "M"}, True),
+        ("cotton $150 tee, 1.9x, dearer per wear", {"title": "Tee 100% Cotton", "extracted_price": 150, "source": "M"}, False),
+        ("wool $90 tee, 1.15x, inside the free headroom", {"title": "Tee 100% Merino Wool", "extracted_price": 90, "source": "M"}, True),
         ("cotton $200 — over the 2.5x ceiling", {"title": "Tee 100% Cotton", "extracted_price": 200, "source": "M"}, False),
         ("suspiciously cheap $20",            {"title": "Tee 100% Cotton", "extracted_price": 20, "source": "M"}, False),
     ]:
-        got = catalog.evaluate(item, price=78, scanned_score=scanned) is not None
+        got = catalog.evaluate(item, price=78, scanned_score=scanned, category="t-shirt",
+                               scanned_wears=scanned_wears) is not None
         check(label, got, expect_kept)
 
-    check("$78 at score 5.4 → 25 wears", fabric.expected_wears(5.4), 25)
-    check("$78 / 25 wears = $3.12", fabric.cost_per_wear(78, 5.4), 3.12)
-    check("$150 at score 8.0 → 200 wears", fabric.expected_wears(8.0), 200)
-    check("$150 / 200 wears = $0.75", fabric.cost_per_wear(150, 8.0), 0.75)
+    check("cost per wear is price / wears", fabric.cost_per_wear(90, 45), 2.0)
+    check("no wears, no cost per wear", fabric.cost_per_wear(90, None), None)
+
+
+def test_score_parts():
+    """v27. The score is 7.0 (cotton reference) plus named, sourced parts."""
+    print("\n=== the score taken apart ===")
+    sp = lambda c: fabric.analyze({"composition": c})["score_parts"]
+    check("cotton is the reference, nothing added", [p["part"] for p in sp("100% Cotton")], ["reference"])
+    parts = {p["part"]: p["points"] for p in sp("100% Polyester")}
+    check("polyester: comfort and pills named", ("comfort" in parts, "pills" in parts), (True, True))
+    check("parts add up to the score (within rounding)",
+          abs(sum(p["points"] for p in sp("60% Cotton, 40% Polyester"))
+              - fabric.quality_score("60% Cotton, 40% Polyester")[0]) <= 0.15, True)
+    check("wool lasts longer than cotton", fabric.fibre_points("wool") > fabric.fibre_points("cotton"), True)
+    check("viscose wears through faster than cotton", fabric.fibre_points("viscose") < fabric.fibre_points("cotton"), True)
+    check("no 'built to be replaced'",
+          any("built to be replaced" in r for r in fabric.analyze({"composition": "100% Polyester"})["reasons"]), False)
+    check("cotton copy no longer overclaims",
+          fabric.analyze({"composition": "100% Cotton"})["reasons"][0],
+          "100% cotton. Breathable and easy to care for. A heavier weight lasts longer.")
+
+
+def test_lifespan_is_sourced():
+    """v26. "How long it lasts" must move with the garment, not the score band."""
+    print("\n=== how long it lasts is computed, not templated ===")
+    L = fabric.lifespan
+    tee = lambda c: L(c, "t-shirt")
+    check("100% cotton tee is the Ecobalyse reference, 45 washes",
+          tee("100% Cotton")["washes"], 45)
+    check("wool outlasts cotton (Laitala & Klepp 2020)",
+          tee("100% Wool")["wears"] > tee("100% Cotton")["wears"], True)
+    check("silk outlasts wool", tee("100% Silk")["wears"] > tee("100% Wool")["wears"], True)
+    check("viscose not credited with the regenerated bonus",
+          tee("100% Viscose")["wears"] < tee("100% Lyocell")["wears"], True)
+    check("same fibre, two garments: same multiplier, different washes",
+          (L("100% Cotton", "t-shirt")["multiplier"] == L("100% Cotton", "sweater")["multiplier"],
+           L("100% Cotton", "t-shirt")["washes"] != L("100% Cotton", "sweater")["washes"]),
+          (True, True))
+    check("sweater talks in wears, tee in washes",
+          (L("100% Wool", "sweater")["unit"], tee("100% Wool")["unit"]), ("wears", "washes"))
+    check("heavy fabric lasts longer", tee("100% Cotton 240gsm")["wears"] > tee("100% Cotton")["wears"], True)
+    check("thin fabric lasts less", tee("100% Cotton 130gsm")["wears"] < tee("100% Cotton")["wears"], True)
+    check("stated weight narrows the range",
+          (lambda a, b: (a[1] - a[0]) < (b[1] - b[0]))(tee("100% Cotton 240gsm")["washes_range"],
+                                                      tee("100% Cotton")["washes_range"]), True)
+    check("never outside the Ecobalyse 0.67–1.45 band",
+          all(0.67 <= tee(c)["multiplier"] <= 1.45 for c in
+              ["100% Silk 30 momme 240gsm", "100% Cotton 100gsm", "100% Polyester"]), True)
+    canon = ["100% Cotton", "100% Linen", "100% Polyester", "95% Cotton, 5% Elastane",
+             "60% Cotton, 40% Acrylic", "100% Viscose", "100% Wool"]
+    lines = [tee(c)["line"] for c in canon]
+    print("        " + " | ".join(lines))
+    check("the 'Solid' template line is gone",
+          any("30–50" in fabric.analyze({"composition": c, "group": "t-shirt"})["wears"] for c in canon), False)
+    check("leather keeps its own line", L("100% Leather", "jacket"), None)
+    check("no garment type: wears only, no washes", L("100% Cotton")["washes"], None)
+    check("cost per wear moves when wears move",
+          fabric.cost_per_wear(100, tee("100% Wool")["wears"]) <
+          fabric.cost_per_wear(100, tee("100% Cotton")["wears"]), True)
 
 
 def test_season_calendar():
@@ -244,8 +308,11 @@ def test_mall_brands_cannot_flood():
     indie = mall + [
         {"title": "Organic Cotton Sweater 100% Organic Cotton",
          "extracted_price": 100, "source": "Kotn", "link": "e"},
+        # v26: $105, not $120. Under the sourced model merino doesn't last 8x a
+        # blend, so a 1.5x price no longer earns itself per wear. This test is
+        # about tier order, so keep the price inside the free headroom.
         {"title": "Merino Crew 100% Merino Wool",
-         "extracted_price": 120, "source": "ARMEDANGELS", "link": "f"},
+         "extracted_price": 105, "source": "ARMEDANGELS", "link": "f"},
     ]
     catalog._fetch = lambda q, num=40: indie
     mixed = catalog.search_alternatives("sweater", price=80, scanned_score=scanned)
@@ -523,7 +590,7 @@ def test_v11_department_price_fast_accounts():
     print("\n=== v11: fast score mode + prompts ===")
     import main
     fast = main.analyze(main.AnalyzeRequest(item=main.Item(composition="100% Polyester", mode="score")))
-    check("fast mode returns a score", fast["score"], 2.2)
+    check("fast mode returns a score", fast["score"], 4.5)
     check("fast mode is pending", fast["pending"], True)
     check("no price -> prompt", fast["price_prompt"], fabric.PRICE_PROMPT)
     check("no price -> no value verdict", fast["value_note"], None)
@@ -713,7 +780,7 @@ def test_v13_evidence_and_rarity():
     a = lambda comp, c=None: fabric.analyze({"composition": comp, "construction": c})
     check("tag-only 100% leather caps at 7.9", a("100% Leather")["score"], 7.9)
     check("tag-only is 'Solid', not 'The real thing'", a("100% Leather")["verdict"], "Solid")
-    check("capped scan explains what's missing", a("100% Linen")["ceiling_note"] is not None, True)
+    check("capped scan explains what's missing", a("100% Wool")["ceiling_note"] is not None, True)
     check("poly-lined leather", a("100% Leather / Lining: 100% Polyester")["score"], 7.5)
     check("stated grade lifts the cap to 8.4", a("Full-grain leather. Lining: 100% cupro")["score"], 8.4)
     check("genuine leather is marked down", a("Genuine leather")["score"] < 7.5, True)
@@ -723,8 +790,8 @@ def test_v13_evidence_and_rarity():
     check("a fault rules out Heirloom",
           a("Full-grain leather. Lining: 100% cupro",
             ["french_seams", "hand_finished", "loose_threads"])["score"] <= 8.9, True)
-    check("construction can't rescue plastic", a("100% polyester", ["french_seams"])["verdict"], "Skip it")
-    check("faults always cost", a("100% wool", ["overlocked_only"])["score"], 7.7)
+    check("construction can't rescue plastic", a("100% polyester", ["french_seams"])["score"] < 6, True)
+    check("faults always cost, even above the cap", a("100% wool", ["overlocked_only"])["score"], 7.6)
     check("unknown tokens ignored", a("100% Wool", ["made_by_angels"])["score"], 7.9)
     check("listing words count as evidence",
           fabric.quality_score("Shirt 100% Supima cotton, French seams, horn buttons, 240gsm",
@@ -1083,6 +1150,8 @@ if __name__ == "__main__":
     test_integrity()
     test_no_fast_fashion()
     test_price_earns_itself()
+    test_lifespan_is_sourced()
+    test_score_parts()
     test_season_calendar()
     test_look_never_overrides_quality()
     test_mall_brands_cannot_flood()

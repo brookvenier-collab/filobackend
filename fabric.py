@@ -194,13 +194,122 @@ def _dedupe(pairs):
     return out
 
 
+# ======================================================================
+# THE SCORE, IN NAMED PARTS (v27, 16 Oct 2026)
+#
+# Every fibre starts at 7.0: cotton, the reference garment in the EU and French
+# durability methods (Ecobalyse). Each part then moves it, and each part names
+# its source. The size of each part (the K_ weights) is Filo's editorial
+# choice and is labelled as such: the sources give direction and relative
+# size between fibres, not a 0-100 score.
+#
+#   life      how long pieces of this fibre are kept and worn
+#             Laitala & Klepp 2020 (53,461 garments), via LIFE_FIBRE below
+#   comfort   how much moisture the fibre takes up, i.e. how it breathes
+#             ASTM D1909-04 commercial moisture regain
+#   pills     whether pills stay on the surface
+#             Yates 2002; Schindler & Hauser 2004; pill area kept rising for
+#             polyester in Živičnjak et al. 2026. Lab pilling GRADES are mixed
+#             across studies, so this part is about pills staying, not forming.
+#   wear      abrasion, for fibres measured weaker than cotton
+#             Tomljenović, Živičnjak & Skenderi 2024: cotton rib ~65,000
+#             Martindale cycles to breakage against viscose 30-40,000 and
+#             lyocell 20-25,000 after wet processing. Viscose also keeps only
+#             ~45-60% of its strength wet (Zhang et al. 2018).
+#
+# Leather and its imitations keep their FIBER_QUALITY values for now (no
+# matching sources yet). Full write-up: claude/filo-evidence-audit.md.
+# ======================================================================
+SCORE_REFERENCE = 7.0
+
+# ASTM D1909-04 commercial moisture regain, %. Linen uses the linen value
+# (8.75), not raw flax (12.0). Modal, lyocell and cupro have no ASTM entry and
+# take the rayon value.
+MOISTURE_REGAIN = {
+    "cotton": 7.0, "linen": 8.75, "hemp": 12.0, "wool": 13.6, "merino": 13.6,
+    "cashmere": 13.6, "silk": 11.0, "viscose": 11.0, "rayon": 11.0,
+    "bamboo": 11.0, "modal": 11.0, "lyocell": 11.0, "tencel": 11.0,
+    "cupro": 11.0, "acetate": 6.5, "polyester": 0.4, "nylon": 4.5,
+    "polyamide": 4.5, "acrylic": 1.5, "elastane": 1.3, "spandex": 1.3,
+}
+PILLS_STAY = {"polyester", "nylon", "polyamide", "acrylic"}
+WEAR_WEAKER = {"viscose": 1.0, "rayon": 1.0, "bamboo": 1.0,
+               "lyocell": 1.0, "tencel": 1.0,
+               # Gun et al. 2014: modal knits lost more mass than cotton; size
+               # not given in the text. Half weight.
+               "modal": 0.5}
+
+# EDITORIAL weights (Filo's choice, not a source).
+K_LIFE = 4.0          # +0.9 for wool's extra 1.2 years
+K_COMFORT = 2.0       # polyester's 0.4% regain costs about 1.9
+COMFORT_MIN, COMFORT_MAX = -2.0, 0.5
+K_PILLS = 1.0
+K_WEAR = 1.0
+
+
+def fibre_parts(key):
+    """[(part, points)] for a garment made 100% of this fibre."""
+    if key not in MOISTURE_REGAIN:
+        return []
+    life = K_LIFE * (LIFE_FIBRE.get(key, 1.0) - 1.0)
+    regain = MOISTURE_REGAIN[key]
+    comfort = max(COMFORT_MIN, min(COMFORT_MAX,
+                                   K_COMFORT * (regain - MOISTURE_REGAIN["cotton"])
+                                   / MOISTURE_REGAIN["cotton"]))
+    pills = -K_PILLS if key in PILLS_STAY else 0.0
+    wear = -K_WEAR * WEAR_WEAKER.get(key, 0.0)
+    return [("life", life), ("comfort", comfort), ("pills", pills), ("wear", wear)]
+
+
+def fibre_points(key):
+    parts = fibre_parts(key)
+    if not parts:
+        return FIBER_QUALITY.get(key, 5.0)
+    return round(SCORE_REFERENCE + sum(p for _, p in parts), 2)
+
+
+PART_LINES = {
+    ("life", True): "Pieces in this fibre are kept and worn longer than cotton.",
+    ("life", False): "Pieces in this fibre don't last as long as cotton.",
+    ("comfort", True): "Takes up moisture well, so it breathes.",
+    ("comfort", False): "Takes up very little moisture, so it can feel hot and clammy.",
+    ("pills", False): "When it pills, the pills stay on. The fibre is too strong to let them break off.",
+    ("wear", False): "Wears through faster than cotton in rub tests.",
+}
+
+
+def score_parts(matched):
+    """The score taken apart: start at 7.0, then each part, blended by
+    percentage. Only parts that move the score by 0.1 or more are listed."""
+    total = sum(p for _, p, _ in matched) or 100
+    sums = {}
+    for key, pct, _ in matched:
+        parts = fibre_parts(key)
+        if not parts:
+            # Leather family or unknown: one block, its fixed value.
+            sums["fixed"] = sums.get("fixed", 0.0) + \
+                (FIBER_QUALITY.get(key, 5.0) - SCORE_REFERENCE) * pct / total
+            continue
+        for name, pts in parts:
+            sums[name] = sums.get(name, 0.0) + pts * pct / total
+    out = [{"part": "reference", "points": SCORE_REFERENCE,
+            "line": "Starts at 70, the cotton reference used in EU and French durability rules."}]
+    for name in ("life", "comfort", "pills", "wear", "fixed"):
+        pts = round(sums.get(name, 0.0), 1)
+        if abs(pts) < 0.1:
+            continue
+        line = PART_LINES.get((name, pts > 0), "")
+        out.append({"part": name, "points": pts, "line": line})
+    return out
+
+
 def _fiber_weight(name):
-    """Map a raw fiber name (e.g. 'organic cotton') to a known fiber + weight."""
+    """Map a raw fiber name (e.g. 'organic cotton') to a known fiber + points."""
     if name in FIBER_QUALITY:
-        return name, FIBER_QUALITY[name]
-    for key, q in FIBER_QUALITY.items():
+        return name, fibre_points(name)
+    for key in FIBER_QUALITY:
         if key in name:
-            return key, q
+            return key, fibre_points(key)
     return name, 5.0  # unknown fiber → neutral
 
 
@@ -441,7 +550,10 @@ def quality_detail(composition, allow_bare=True, construction=None):
         ceiling = CAP_GRADE
     else:
         ceiling = CAP_FIBRE_ONLY
-    score = max(0.0, min(ceiling, 10.0, round(raw, 1)))
+    # Faults cost in full, after the cap (v27). Before, a fibre that scored
+    # above its cap absorbed the fault and showed no change.
+    fault_adj = sum(a for _, a, _ in faults)
+    score = max(0.0, min(10.0, round(min(ceiling, raw - fault_adj) + fault_adj, 1)))
     return {
         "score": score,
         "matched": matched,
@@ -487,8 +599,8 @@ def _score_pairs(pairs):
         if key in SYNTHETICS:
             synth_pct += pct
     score = weighted / total
-    if synth_pct >= 80:      # mostly plastic → real-world penalty
-        score -= 0.8
+    # v27: the old -0.8 "mostly plastic" penalty is gone. It had no source; the
+    # comfort and pills parts now carry what it stood for, with sources.
     score = max(0.0, min(10.0, round(score, 1)))
     return score, matched
 
@@ -501,26 +613,196 @@ def verdict(score):
     return "Skip it"
 
 
-def wear_estimate(score):
-    if score >= 8:   return "Built to last — years of wear, 50+ washes with care."
-    if score >= 6:   return "Solid — should hold up for ~30–50 washes."
-    if score >= 4.5: return "Middling — expect ~15–30 washes before it shows wear."
-    return "Low — likely to pill or lose shape within ~5–10 washes."
+# ======================================================================
+# HOW LONG IT LASTS — sourced model (v26, 16 Oct 2026)
+#
+# Replaces wear_estimate()/expected_wears(), which were four fixed lines keyed
+# off the score band: every "Solid" piece said "~30–50 washes" whatever it was
+# made of. Full evidence write-up: claude/filo-evidence-audit.md (Project).
+#
+# 1. BASE LIFE per garment type, in wears, with wears per wash.
+#    Source: Ecobalyse, the French government's textile environmental-cost
+#    method (MTES-MCT/ecobalyse, public/data/textile/products.json, read 16 Oct
+#    2026), legal basis Arrêté of 6 Sept 2025. These are regulatory reference
+#    defaults, not lab measurements. Cross-checks: WRAP benchmark 56 washes for a
+#    t-shirt, 30 for jeans (Guo et al. 2025); EU JRC proposes testing t-shirts
+#    after 30 washes (Task 4, Nov 2024).
+# 2. FIBRE ADJUSTMENT, from the one large study linking fibre to real lifespan:
+#    Laitala & Klepp 2020, Sustainability 12:9151 — 53,461 garments in 5
+#    countries. Versus cotton: silk +2.2 yr, wool +1.2 yr, regenerated cellulose
+#    +9.7 months, synthetics +5.5 months. Converted to a ratio on the study's
+#    ~5.2-year average garment life.
+# 3. The total adjustment is kept inside Ecobalyse's legal durability band,
+#    0.67–1.45 (Arrêté 6 Sept 2025, art. 6).
+#
+# Anything marked JUDGEMENT below has direction from evidence but no published
+# magnitude. Keep that label until a source gives a number.
+# ======================================================================
+
+# group: (base wears, wears per wash). Ecobalyse product → Filo garment group.
+LIFE_BASE = {
+    "t-shirt":  (45, 1),    # T-shirt / Polo
+    "top":      (45, 1),    # T-shirt / Polo
+    "shirt":    (40, 2),    # Chemise
+    "blouse":   (40, 2),    # Chemise
+    "jeans":    (70, 3),    # Jean
+    "trousers": (70, 3),    # Pantalon / Short
+    "shorts":   (70, 3),    # Pantalon / Short
+    "skirt":    (70, 3),    # Jupe / Robe
+    "dress":    (70, 3),    # Jupe / Robe
+    "sweater":  (85, 5),    # Pull
+    "cardigan": (85, 5),    # Pull
+    "hoodie":   (85, 5),    # Pull (closest Ecobalyse product)
+    "jacket":   (100, 20),  # Manteau / Veste
+    "blazer":   (100, 20),  # Manteau / Veste
+    "coat":     (100, 20),  # Manteau / Veste
+    # leggings: no Ecobalyse product. Laitala 2018 puts sportswear at ~1.5
+    # wears per wash; base life borrowed from T-shirt. JUDGEMENT.
+    "leggings": (45, 1),
+}
+# No garment type picked: total wears of the average garment in Laitala &
+# Klepp 2020 (~35 worn so far + ~46 expected). Washes can't be given without a type.
+LIFE_UNKNOWN_WEARS = 80
+
+_AVG_LIFE_YEARS = 5.2   # Laitala & Klepp 2020, average garment lifespan estimate
+LIFE_FIBRE = {
+    # Laitala & Klepp 2020, extra years of life versus cotton.
+    "silk": 1 + 2.2 / _AVG_LIFE_YEARS,
+    "wool": 1 + 1.2 / _AVG_LIFE_YEARS,
+    "merino": 1 + 1.2 / _AVG_LIFE_YEARS,
+    "cashmere": 1 + 1.2 / _AVG_LIFE_YEARS,
+    "lyocell": 1 + 0.81 / _AVG_LIFE_YEARS,
+    "tencel": 1 + 0.81 / _AVG_LIFE_YEARS,
+    "modal": 1 + 0.81 / _AVG_LIFE_YEARS,
+    "cupro": 1 + 0.81 / _AVG_LIFE_YEARS,
+    "polyester": 1 + 0.46 / _AVG_LIFE_YEARS,
+    "nylon": 1 + 0.46 / _AVG_LIFE_YEARS,
+    "polyamide": 1 + 0.46 / _AVG_LIFE_YEARS,
+    "acrylic": 1 + 0.46 / _AVG_LIFE_YEARS,
+    "elastane": 1 + 0.46 / _AVG_LIFE_YEARS,
+    "spandex": 1 + 0.46 / _AVG_LIFE_YEARS,
+    # Viscose sits in Laitala's regenerated group, but keeps only ~45–60% of
+    # its strength wet against ~85% for lyocell (Zhang et al. 2018). Held at
+    # cotton rather than given the group bonus. JUDGEMENT.
+    "viscose": 1.0, "rayon": 1.0, "bamboo": 1.0, "acetate": 1.0,
+    # Linen and hemp: no lifespan figure found. Held at cotton. GAP.
+    "cotton": 1.0, "linen": 1.0, "hemp": 1.0,
+}
+LIFE_BAND = (0.67, 1.45)    # Ecobalyse legal durability coefficient range
+# Fabric weight: heavier 100% cotton tees ranked better after 50 washes
+# (Morris et al. 2025, Spearman 0.44); heavier knits pilled less
+# (Mikučionienė 2009). Size of effect not published. JUDGEMENT.
+LIFE_GSM_HEAVY, LIFE_GSM_THIN = 1.10, 0.90
+# Long-staple cotton fibre is ~15–30% stronger (Tang et al. 2025); no
+# garment-level test found. Kept small. JUDGEMENT.
+LIFE_LONG_STAPLE = 1.05
+# How wide the range is. Burst strength across 47 tees after 50 washes ran
+# 156–598 N (Morris et al. 2025), so a tag alone can't narrow it much.
+LIFE_SPREAD_TAG_ONLY = 0.30
+LIFE_SPREAD_WEIGHT_KNOWN = 0.15
+
+_SYNTH_LIFE = {"polyester", "nylon", "polyamide", "acrylic"}
 
 
-def expected_wears(score):
-    """Roughly how many wears before it looks tired. The denominator in
-    cost-per-wear, which is how Filo justifies a higher price honestly."""
-    if score is None:  return None
-    if score >= 8:     return 200
-    if score >= 7:     return 120
-    if score >= 6:     return 60
-    if score >= 4.5:   return 25
-    return 8
+def _round5(n):
+    return max(5, int(5 * round(n / 5)))
 
 
-def cost_per_wear(price, score):
-    wears = expected_wears(score)
+def lifespan(composition, group=None):
+    """How long it lasts, from what the tag and listing actually say.
+
+    Returns None when there's no fibre to read, or for leather (leather fails by
+    cracking, not washing — analyze() keeps its own line for that).
+    """
+    detail = quality_detail(composition)
+    if detail is None:
+        return None
+    matched = detail["matched"]
+    if material_class(matched):
+        return None
+    total = sum(p for _, p, _ in matched) or 100
+    fibre = sum(LIFE_FIBRE.get(k, 1.0) * p for k, p, _ in matched) / total
+    mult, notes = fibre, []
+    text = (composition or "").lower()
+
+    gsm_m = _WEIGHT_GSM.search(text)
+    weight_known = bool(gsm_m)
+    if gsm_m:
+        g = int(gsm_m.group(1))
+        if g >= 220:
+            mult *= LIFE_GSM_HEAVY
+        elif g <= 140:
+            mult *= LIFE_GSM_THIN
+    top_key = max(matched, key=lambda m: m[1])[0]
+    if top_key == "cotton" and re.search(_GRADE_RULES[3][0], text):
+        mult *= LIFE_LONG_STAPLE
+    mult = max(LIFE_BAND[0], min(LIFE_BAND[1], mult))
+
+    base, per_wash = LIFE_BASE.get(group, (None, None))
+    wears = (base or LIFE_UNKNOWN_WEARS) * mult
+    spread = LIFE_SPREAD_WEIGHT_KNOWN if weight_known else LIFE_SPREAD_TAG_ONLY
+    out = {
+        "wears": round(wears),
+        "wears_range": [_round5(wears * (1 - spread)), _round5(wears * (1 + spread))],
+        "washes": None, "washes_range": None,
+        "unit": "wears",
+        "multiplier": round(mult, 2),
+        "weight_known": weight_known,
+    }
+    if per_wash:
+        washes = wears / per_wash
+        out["washes"] = round(washes)
+        out["washes_range"] = [_round5(washes * (1 - spread)), _round5(washes * (1 + spread))]
+        if per_wash <= 2:
+            out["unit"] = "washes"
+
+    # The headline, in the unit people think in for this garment.
+    if out["unit"] == "washes":
+        lo, hi = out["washes_range"]
+        out["line"] = f"About {_round5(washes)} washes ({lo} to {hi})."
+    elif out["washes"]:
+        lo, hi = out["wears_range"]
+        out["line"] = (f"About {_round5(wears)} wears ({lo} to {hi}), "
+                       f"around {_round5(washes)} washes.")
+    else:
+        lo, hi = out["wears_range"]
+        out["line"] = f"About {_round5(wears)} wears ({lo} to {hi}). Pick what it is to see washes."
+
+    # The one-line "because".
+    synth = sum(p for k, p, _ in matched if k in _SYNTH_LIFE)
+    if fibre >= 1.15 and top_key in ("silk", "wool", "merino", "cashmere"):
+        notes.append(f"{top_key.capitalize()} pieces are kept and worn longer than cotton "
+                     "in large wardrobe studies, and need washing less often.")
+    elif synth >= 50:
+        notes.append("Synthetic fabric holds its shape through washing, but it pills "
+                     "more than cotton and the pills stay on.")
+    elif top_key in ("viscose", "rayon", "bamboo"):
+        notes.append("Viscose loses about half its strength when wet, so washing is "
+                     "where it wears out.")
+    elif base:
+        notes.append("This is the usual life for this kind of piece, from the EU and "
+                     "French durability standards.")
+    else:
+        notes.append("This is the average life of a garment in a study of over "
+                     "50,000 pieces.")
+    if weight_known:
+        notes.append("The fabric weight is stated, so the range is narrower.")
+    else:
+        notes.append("The tag doesn't say how heavy the fabric is, and that changes it "
+                     "the most, so the range is wide.")
+    out["because"] = " ".join(notes)
+    return out
+
+
+def expected_wears(composition, group=None):
+    """Wears used for cost-per-wear. Same model as the shopper sees."""
+    life = lifespan(composition, group)
+    return life["wears"] if life else None
+
+
+def cost_per_wear(price, wears):
+    """price / wears. `wears` comes from lifespan(); both sides of any comparison
+    must come from the same model."""
     if not price or not wears:
         return None
     return round(price / wears, 2)
@@ -537,6 +819,10 @@ def care_flags(matched):
         flags.append("Easy to wash, but prone to pilling and holding odor.")
     if "linen" in fibers:
         flags.append("Wrinkles easily — part of the charm, but expect creasing.")
+    if fibers & {"elastane", "spandex"}:
+        # Chlorine is the stretch fibre's proven weak point (Bayer, US 5,969,008);
+        # normal washing showed no clear loss within 20 to 25 washes.
+        flags.append("Has stretch fibre. Keep it away from bleach and pool chlorine.")
     return flags
 
 
@@ -559,18 +845,17 @@ def reasons(score, matched, price):
         out.append("Real leather — it softens and ages instead of wearing out, "
                    "and a good one lasts decades with care.")
     elif synth >= 80:
-        out.append(f"{synth}% synthetic — it'll trap heat, pill quickly, and won't age well.")
+        out.append(f"{synth}% synthetic. It holds its shape, but it takes up almost no "
+                   "moisture, so it can feel hot, and when it pills the pills stay on.")
     elif top_pct >= 100 and top_key in NATURALS:
-        out.append(f"100% {top_key} — breathable, durable, and it only gets better with time.")
+        out.append(f"100% {top_key}. Breathable and easy to care for. A heavier weight lasts longer.")
     elif natural >= 80:
-        out.append(f"Mostly {top_key} — breathable, durable, and it only gets better with time.")
+        out.append(f"Mostly {top_key}. Breathable and easy to care for. A heavier weight lasts longer.")
     else:
         out.append(f"A {natural}% natural / {synth}% synthetic blend — a trade-off between feel and longevity.")
 
     if score >= 7:
         out.append("Well-made enough to keep for years.")
-    elif score < 4.5:
-        out.append("This is built to be replaced, not kept.")
     return out
 
 
@@ -635,7 +920,9 @@ def price_note(score, matched, price, group, material=None):
     (cheap_lo, cheap_hi), (good_lo, good_hi) = guide
     make = _describe_make(matched)
     p = f"${price:,.0f}"
-    if score < 4.5:
+    # v27: "cheaply made" is the guide's mostly-synthetic band. The rebuilt score
+    # puts 100% polyester at 4.5, so the band is matched on what it describes.
+    if score < 4.5 or synthetic_pct(matched) >= 50:
         if price > cheap_hi * 1.25:
             return (f"{p} is a lot for {make}. Pieces made like this usually "
                     f"sell for ${cheap_lo}–{cheap_hi}.")
@@ -690,7 +977,9 @@ def analyze(item):
 
     material = material_class(matched)
     durability = detail["uncapped"]
-    wears = wear_estimate(durability)
+    group = item.get("group")
+    life = lifespan(composition, group)
+    wears = life["line"] if life else None
     flags = care_flags(matched)
     # Washes are the wrong unit for leather. It fails by cracking, not pilling.
     if material == "faux leather":
@@ -707,6 +996,8 @@ def analyze(item):
         "reasons": _with_evidence(_with_lining(reasons(score, matched, price), composition),
                                   detail),
         "ceiling_note": ceiling_note(detail),
+        # v27: the score taken apart, each part with its source (see fibre_parts).
+        "score_parts": score_parts(matched),
         # How long it lasts, from the fibre and make alone — never capped by
         # evidence. Used for wears and cost-per-wear; the headline uses "score".
         "durability": durability,
@@ -717,6 +1008,8 @@ def analyze(item):
             "construction": detail["construction"],
         },
         "wears": wears,
+        # v26: the sourced life estimate behind "wears" (None for leather).
+        "lifespan": life,
         "care_flags": flags,
         "value_note": value_note(durability, price),
         "alternatives": [],  # populated later via SerpAPI + look-matching

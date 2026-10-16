@@ -108,6 +108,8 @@ def analyze(req: AnalyzeRequest):
         "composition": req.item.composition,
         "construction": (req.item.construction or [])[:12],
     }
+    # v26: the garment type sets the base life and wears per wash.
+    item["group"] = catalog.garment_group(req.item.category)
 
     seam_tokens = []
     if req.item.seam_image:
@@ -207,6 +209,7 @@ def analyze(req: AnalyzeRequest):
             price=item.get("price"),
             scanned_score=score,
             scanned_durability=result.get("durability"),
+            scanned_wears=(result.get("lifespan") or {}).get("wears"),
             look=look,
             material=search_material,
             department=department,
