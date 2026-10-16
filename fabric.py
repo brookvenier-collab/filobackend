@@ -1011,7 +1011,9 @@ def analyze(item):
         # v26: the sourced life estimate behind "wears" (None for leather).
         "lifespan": life,
         "care_flags": flags,
-        "value_note": value_note(durability, price),
+        # v28: the old value lines used hand-set price thresholds ($40). Price
+        # verdicts now come only from market.py, on live listings.
+        "value_note": None,
         "alternatives": [],  # populated later via SerpAPI + look-matching
         "alternatives_note": "Better-made alternatives turn on once product search is connected.",
     }

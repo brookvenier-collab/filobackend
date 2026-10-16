@@ -1,0 +1,205 @@
+"""
+Filo market price check (v28, 16 Oct 2026).
+
+"Is this a fair price for what it's made of?" answered from live listings, not
+from numbers anyone typed in. Replaces fabric.PRICE_GUIDE for every shopper-facing
+price verdict.
+
+WHY LIVE LISTINGS
+No public source publishes a usual retail price per garment type and fibre in
+North America. The US BLS says it does not publish average prices for apparel;
+Statistics Canada publishes clothing price indexes, and we found no dollar
+averages for clothing (see claude/filo-evidence-audit.md, section on price).
+The legal tests that come closest to "the usual price" ask what suppliers
+generally charge: Canada's Competition Act s.74.01(2) ("suppliers generally in
+the relevant geographic market") and the FTC's 16 CFR 233.2(a) (the price at
+which "substantial sales" are being made in the area). A median of many current
+listings from many shops is the nearest honest measure of that.
+
+THE RULES (each one is there to stop an overclaim)
+- Comparable means: same garment group, states its fibre content in the
+  listing (allow_bare=False), same dominant fibre making up at least 70% and
+  within 20 points of the scanned piece, same department where known, not
+  pre-owned.
+- Regular price, not sale price: a listing's old price when it shows one.
+- One listing per product (sizes collapsed) and per shop per product.
+- At least MIN_LISTINGS comparables from at least MIN_SHOPS different shops,
+  or no verdict at all.
+- Three levels, and the line always shows what it's based on.
+- Talks about the piece and the price, never the brand or the shop.
+"""
+import statistics
+from datetime import date
+
+import fabric
+import brands
+import catalog
+
+MIN_LISTINGS = 20
+MIN_SHOPS = 5
+DOMINANT_MIN = 70        # the fibre must be at least this % of the piece
+DOMINANT_TOLERANCE = 20  # and within this many points of the scanned piece
+OVERPAY_RATIO = 1.25     # above the 75th percentile AND this far over the median
+
+NOT_ENOUGH = "Not enough similar listings to compare the price yet."
+DISCLAIMER = ("Compared with current prices for similar pieces. "
+              "It's not a judgement on the brand or the shop.")
+
+GOOD, FAIR, OVER = "good_value", "fair", "overpaying"
+LABELS = {GOOD: "Good value", FAIR: "Fair price", OVER: "You may be overpaying"}
+
+_GROUP_WORD = {"t-shirt": "t-shirt", "top": "top", "shirt": "shirt",
+               "blouse": "blouse", "sweater": "sweater", "cardigan": "cardigan",
+               "hoodie": "hoodie", "jeans": "jeans", "trousers": "trousers",
+               "shorts": "shorts", "leggings": "leggings", "skirt": "skirt",
+               "dress": "dress", "jacket": "jacket", "blazer": "blazer",
+               "coat": "coat"}
+
+
+def _dominant(matched):
+    """(fibre, pct) making up most of the piece, or (None, 0)."""
+    if not matched:
+        return None, 0
+    total = sum(p for _, p, _ in matched) or 100
+    key, pct, _ = max(matched, key=lambda m: m[1])
+    return key, round(100 * pct / total)
+
+
+def describe(matched):
+    """'100% polyester' or 'mostly cotton' — what the line calls the make."""
+    key, pct = _dominant(matched)
+    if key is None:
+        return None
+    return f"100% {key}" if pct >= 100 else f"mostly {key}"
+
+
+def queries(group, matched, department=None):
+    key, pct = _dominant(matched)
+    word = _GROUP_WORD.get(group)
+    if not key or not word:
+        return []
+    dept = {"women": "women's", "men": "men's"}.get(department or "", "")
+    lead = f"100% {key}" if pct >= 100 else key
+    out = [f"{dept} {lead} {word}".strip(), f"{dept} {key} {word}".strip()]
+    if dept:
+        out.append(f"{lead} {word}")
+    seen, uniq = set(), []
+    for q in out:
+        if q not in seen:
+            seen.add(q)
+            uniq.append(q)
+    return uniq
+
+
+def _regular_price(item):
+    """The non-sale price: a listing's old price when it shows one."""
+    for k in ("extracted_old_price", "extracted_price"):
+        v = item.get(k)
+        if isinstance(v, (int, float)) and v > 0:
+            return float(v)
+    return None
+
+
+def comparable(item, group, matched, department=None):
+    """True if this listing can stand in the comparison."""
+    title = item.get("title") or ""
+    if brands.is_resale(item.get("source")) or brands.is_resale(title):
+        return False
+    if not catalog.same_garment(title, group):
+        return False
+    if department and not catalog.same_department(title, department):
+        return False
+    detail = fabric.quality_detail(catalog._describe(item), allow_bare=False)
+    if detail is None:
+        return False
+    if fabric.material_class(detail["matched"]):
+        return False   # leather has its own markets; not handled here yet
+    key, pct = _dominant(matched)
+    lkey, lpct = _dominant(detail["matched"])
+    return (lkey == key and lpct >= DOMINANT_MIN
+            and abs(lpct - pct) <= DOMINANT_TOLERANCE)
+
+
+def _percentile(sorted_vals, q):
+    """Linear-interpolated percentile on a sorted list, q in 0..1."""
+    if not sorted_vals:
+        return None
+    pos = (len(sorted_vals) - 1) * q
+    lo = int(pos)
+    hi = min(lo + 1, len(sorted_vals) - 1)
+    return sorted_vals[lo] + (sorted_vals[hi] - sorted_vals[lo]) * (pos - lo)
+
+
+MARKETS = {"US": ("us", "USD", "US"), "CA": ("ca", "CAD", "Canada")}
+
+
+def benchmark(group, matched, department=None, fetch=None, country=None):
+    """The usual price for pieces like this, from current listings, or None."""
+    key, pct = _dominant(matched)
+    if key is None or pct < DOMINANT_MIN or group not in _GROUP_WORD:
+        return None
+    if fabric.material_class(matched):
+        return None
+    gl, currency, place = MARKETS.get((country or "US").upper(), MARKETS["US"])
+    if fetch is None:
+        fetch = lambda q, num=100: catalog._fetch(q, num=num, gl=gl)
+    prices, shops, seen = [], set(), set()
+    for q in queries(group, matched, department):
+        for item in fetch(q, num=100) or []:
+            lk = catalog.listing_key(item)
+            if lk in seen:
+                continue
+            seen.add(lk)
+            if not comparable(item, group, matched, department):
+                continue
+            p = _regular_price(item)
+            if p is None:
+                continue
+            prices.append(p)
+            shops.add(str(item.get("source") or "").lower().strip())
+    if len(prices) < MIN_LISTINGS or len(shops) < MIN_SHOPS:
+        return {"enough": False, "listings": len(prices), "shops": len(shops)}
+    prices.sort()
+    return {
+        "enough": True,
+        "listings": len(prices),
+        "shops": len(shops),
+        "p25": round(_percentile(prices, 0.25)),
+        "median": round(statistics.median(prices)),
+        "p75": round(_percentile(prices, 0.75)),
+        "as_of": date.today().strftime("%b %Y"),
+        "currency": currency,
+        "market": place,
+    }
+
+
+def check(price, group, matched, department=None, fetch=None, country=None):
+    """The price check the app shows. None when there's no price to check."""
+    if price is None or not matched:
+        return None
+    make = describe(matched)
+    bench = benchmark(group, matched, department, fetch=fetch, country=country)
+    if not bench or not bench.get("enough"):
+        return {"level": None, "label": None, "line": NOT_ENOUGH,
+                "based_on": None, "benchmark": bench, "disclaimer": None}
+    p25, med, p75 = bench["p25"], bench["median"], bench["p75"]
+    word = _GROUP_WORD[group]
+    plural = word if word.endswith("s") else word + "s"
+    p = f"${price:,.0f}"
+    rng = f"${p25:,}" + (f" to ${p75:,}" if p75 != p25 else "")
+    if price < p25:
+        level = GOOD
+        line = f"Below the usual price for {make} {plural}. Similar pieces sell for {rng}."
+    elif price > p75 and price >= OVERPAY_RATIO * med:
+        level = OVER
+        ratio = price / med if med else 0
+        how = f"about {ratio:.1f} times" if ratio >= 1.5 else "well above"
+        line = (f"{p} is {how} the usual price for {make} {plural}. "
+                f"Similar pieces sell for {rng}.")
+    else:
+        level = FAIR
+        line = f"About the usual price for {make} {plural}. Similar pieces sell for {rng}."
+    based_on = (f"Based on {bench['listings']} similar listings at {bench['shops']} shops "
+                f"in {'the US' if bench['market'] == 'US' else bench['market']}, {bench['as_of']}. Prices in {bench['currency']}.")
+    return {"level": level, "label": LABELS[level], "line": line,
+            "based_on": based_on, "benchmark": bench, "disclaimer": DISCLAIMER}

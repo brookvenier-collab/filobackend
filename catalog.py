@@ -283,7 +283,7 @@ def _cached(query):
     return None
 
 
-def _fetch(query, num=40):
+def _fetch(query, num=40, gl=None):
     """Raw Google Shopping results. Split out so the filter tests run offline.
 
     Cached, because Filo re-searches the same categories constantly and SerpAPI
@@ -292,12 +292,17 @@ def _fetch(query, num=40):
     if not SERPAPI_KEY or not query:
         return []
 
-    hit = _cached(query)
+    ckey = query if not gl else f"{gl}|{query}"
+    hit = _cached(ckey)
     if hit is not None:
         return hit
 
     params = {"engine": "google_shopping", "q": query,
               "num": str(num), "api_key": SERPAPI_KEY}
+    if gl:
+        # v28: country of the listings, so a Canadian price is compared with
+        # Canadian prices in CAD. Without it Google Shopping answers for the US.
+        params["gl"] = gl
     url = "https://serpapi.com/search.json?" + urllib.parse.urlencode(params)
     try:
         with urllib.request.urlopen(url, timeout=QUERY_TIMEOUT) as resp:
@@ -307,7 +312,7 @@ def _fetch(query, num=40):
         return []  # never break a scan because search failed
 
     results = data.get("shopping_results", []) or []
-    _cache[query] = (time.time() + CACHE_TTL, results)
+    _cache[ckey] = (time.time() + CACHE_TTL, results)
     return results
 
 

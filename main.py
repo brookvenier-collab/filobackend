@@ -15,6 +15,7 @@ from pydantic import BaseModel
 
 import fabric
 import catalog
+import market
 import events
 import aggregates
 import style
@@ -84,6 +85,10 @@ class Item(BaseModel):
     # the better made options and add one brand search. Cleaned by
     # catalog.clean_taste; never stored, never tied to an account.
     taste: Optional[dict] = None
+    # v28. "CA" or "US": which country's listings the price is compared with,
+    # and in which currency. Without it the comparison uses US listings in USD
+    # and says so.
+    country: Optional[str] = None
 
 
 EXTRA_LOOK_PICKS = {"leather"}
@@ -130,19 +135,24 @@ def analyze(req: AnalyzeRequest):
 
     score = result.get("score")
 
-    # Price vs how it's made. Only ever on a price the shopper actually gave —
-    # never on an estimate.
+    # Price vs what similar pieces sell for (v28, market.py). Only ever on a
+    # price the shopper actually gave, never an estimate, and only from live
+    # listings: the old hand-set price ranges are no longer used for verdicts.
     _, matched = fabric.quality_score(item["composition"])
     group = catalog.garment_group(item.get("category"))
+    result["value_note"] = None
     if item.get("price") is not None and score is not None:
-        result["price_note"] = fabric.price_note(result.get("durability", score), matched,
-                                                 item["price"], group,
-                                                 result.get("material"))
         result["price_prompt"] = None
-    else:
+        if group is None:
+            result["price_check"] = {"level": None, "label": None, "pending": False,
+                                     "line": "Tell us what it is to compare the price."}
+        else:
+            result["price_check"] = {"level": None, "label": None, "pending": True,
+                                     "line": "Checking similar listings."}
         result["price_note"] = None
-        # The fabric-only value line ("paying for the name") needs a price too.
-        result["value_note"] = None
+    else:
+        result["price_check"] = None
+        result["price_note"] = None
         result["price_prompt"] = fabric.PRICE_PROMPT if score is not None else None
 
     department = catalog.normalize_department(req.item.department, item.get("category"))
@@ -169,9 +179,13 @@ def analyze(req: AnalyzeRequest):
     #
     # With no image (the default) nothing waits on vision and the timing is
     # identical to before this existed.
-    pool = ThreadPoolExecutor(max_workers=3)
+    pool = ThreadPoolExecutor(max_workers=4)
     try:
         style_future = pool.submit(style.style_read, item)
+        price_future = None
+        if (result.get("price_check") or {}).get("pending"):
+            price_future = pool.submit(market.check, item["price"], group, matched,
+                                       department, None, req.item.country)
 
         look = []
         if req.item.image:
@@ -221,6 +235,20 @@ def analyze(req: AnalyzeRequest):
             alternatives = alt_future.result(timeout=catalog.SEARCH_BUDGET + 2)
         except Exception:                   # noqa: BLE001
             alternatives = []
+
+        if price_future is not None:
+            try:
+                pc = price_future.result(timeout=catalog.SEARCH_BUDGET + 2)
+            except Exception:               # noqa: BLE001
+                pc = None
+            pc = pc or {"level": None, "label": None, "line": market.NOT_ENOUGH}
+            pc["pending"] = False
+            result["price_check"] = pc
+            # The 1.x app shows price_note as one line, so it carries the whole
+            # verdict and what it's based on.
+            result["price_note"] = " ".join(x for x in (
+                (pc.get("label") + ".") if pc.get("label") else None,
+                pc.get("line"), pc.get("based_on")) if x)
 
         try:
             # The style read is garnish. It gets 4 seconds past the search and

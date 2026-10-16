@@ -158,6 +158,62 @@ def test_score_parts():
           "100% cotton. Breathable and easy to care for. A heavier weight lasts longer.")
 
 
+def test_market_price_check():
+    """v28. Price verdicts come from live comparable listings only."""
+    import market
+    print("\n=== price check: from live listings, three levels, never a guess ===")
+    poly = fabric.quality_score("100% Polyester")[1]
+
+    def listings(n, shops, price_fn, comp="100% Polyester", title="Women's Crew T-Shirt"):
+        names = ["Alba", "Bea", "Cora", "Dina", "Ema", "Fay", "Gia", "Hana", "Ida", "Juno",
+                 "Kai", "Lena", "Mara", "Nia", "Ora", "Pia", "Quin", "Rhea", "Sia", "Tia",
+                 "Uma", "Vera", "Wren", "Xena", "Yara", "Zoe", "Ada", "Bo", "Cy", "Di"]
+        return [{"title": f"{title} {comp} {names[i]}", "source": f"Shop{i % shops}",
+                 "extracted_price": price_fn(i), "link": f"l{i}"} for i in range(n)]
+    tees = listings(30, 8, lambda i: 15 + i)          # $15 to $44, median ~$30
+    fetch = lambda q, num=100: tees
+    b = market.benchmark("t-shirt", poly, "women", fetch=fetch)
+    check("enough listings -> a benchmark", (b["enough"], b["listings"], b["shops"]), (True, 30, 8))
+    check("median is the middle listing", b["median"], 30)
+    lvl = lambda p: market.check(p, "t-shirt", poly, "women", fetch=fetch)["level"]
+    check("$12 is good value", lvl(12), market.GOOD)
+    check("$30 is fair", lvl(30), market.FAIR)
+    check("$40, above p75 but under 1.25x median, is still fair", lvl(37), market.FAIR)
+    check("$180 polyester tee: you may be overpaying", lvl(180), market.OVER)
+    over = market.check(180, "t-shirt", poly, "women", fetch=fetch)
+    check("overpaying line shows the multiple and the range",
+          over["line"].startswith("$180 is about 6.0 times the usual price for 100% polyester t-shirts"), True)
+    check("says what it's based on", over["based_on"].startswith("Based on 30 similar listings at 8 shops"), True)
+    check("never names a brand or shop", "Shop" in over["line"] + over["based_on"], False)
+    for bad in ("rip", "scam", "fake", "lying"):
+        check(f"no '{bad}' in the line", bad in over["line"].lower(), False)
+
+    few = lambda q, num=100: tees[:12]
+    check("under 20 listings -> no verdict", market.check(180, "t-shirt", poly, fetch=few)["level"], None)
+    one_shop = lambda q, num=100: listings(30, 2, lambda i: 20)
+    check("under 5 shops -> no verdict", market.check(180, "t-shirt", poly, fetch=one_shop)["level"], None)
+
+    cotton = lambda q, num=100: listings(30, 8, lambda i: 60, comp="100% Cotton")
+    check("cotton listings don't price a polyester tee",
+          market.check(180, "t-shirt", poly, fetch=cotton)["level"], None)
+    bare = lambda q, num=100: [dict(x, title="Women's Crew T-Shirt") for x in tees]
+    check("listings that don't state fibre don't count",
+          market.check(180, "t-shirt", poly, fetch=bare)["level"], None)
+    dresses = lambda q, num=100: listings(30, 8, lambda i: 20, title="Midi Dress")
+    check("other garments don't count", market.check(180, "t-shirt", poly, fetch=dresses)["level"], None)
+    resale = lambda q, num=100: [dict(x, source="The RealReal") for x in tees]
+    check("pre-owned doesn't count", market.check(180, "t-shirt", poly, fetch=resale)["level"], None)
+    sale = [dict(x, extracted_price=5, extracted_old_price=x["extracted_price"]) for x in tees]
+    check("uses the regular price, not the sale price",
+          market.benchmark("t-shirt", poly, fetch=lambda q, num=100: sale)["median"], 30)
+    check("no price -> no check", market.check(None, "t-shirt", poly, fetch=fetch), None)
+    seen_gl = []
+    catalog._fetch = lambda q, num=40, gl=None: (seen_gl.append(gl), tees)[1]
+    ca = market.check(180, "t-shirt", poly)
+    check("Canadian scan asks for Canadian listings", market.check(180, "t-shirt", poly, country="CA")["based_on"].endswith("in Canada, " + ca["benchmark"]["as_of"] + ". Prices in CAD."), True)
+    check("country goes to the search", "ca" in seen_gl and "us" in seen_gl, True)
+
+
 def test_lifespan_is_sourced():
     """v26. "How long it lasts" must move with the garment, not the score band."""
     print("\n=== how long it lasts is computed, not templated ===")
@@ -596,7 +652,9 @@ def test_v11_department_price_fast_accounts():
     check("no price -> no value verdict", fast["value_note"], None)
     priced = main.analyze(main.AnalyzeRequest(item=main.Item(composition="100% Polyester",
                                                              price=75, category="t-shirt", mode="score")))
-    check("price -> price note", (priced["price_note"] or "").startswith("$75"), True)
+    # v28: the price verdict comes from live listings, so the fast path only
+    # says it's coming.
+    check("price -> price check pending", priced["price_check"]["pending"], True)
     check("price -> no prompt", priced["price_prompt"], None)
     # v14 added season fields; the two 1.1 keys must stay so older builds keep working.
     check("/config keeps 1.1 keys", {"home_image_alt", "home_image_url"} <= set(main.home_config()), True)
@@ -1152,6 +1210,7 @@ if __name__ == "__main__":
     test_price_earns_itself()
     test_lifespan_is_sourced()
     test_score_parts()
+    test_market_price_check()
     test_season_calendar()
     test_look_never_overrides_quality()
     test_mall_brands_cannot_flood()
