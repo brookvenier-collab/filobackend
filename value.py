@@ -644,30 +644,60 @@ def breakdown_rows(item, detail, score, fair=None):
         return []
 
 
+_SHORT = {
+    STEAL: "{p} is below the fair price of {r}.",
+    WORTH_IT: "{p} fits the fair price of {r}.",
+    FAIR_FOR_WHAT: "{p} is about right. A fair price is {r}.",
+    GET_WHAT_YOU_PAY: "{p} is fair, but it won't last as long as better fabric.",
+    HIGH_FOR_WHAT: "{p} is above the fair price of {r}.",
+    HIGH_PRICE: "{p} is above the fair price of {r}. Some of it is the name.",
+    OVERPRICED: "{p} is well above the fair price of {r}.",
+    CHECK_GRADE: "{p} is low for this fabric. It may be a lower grade.",
+    TOO_CHEAP: "{p} is less than the fabric alone should cost.",
+}
+_ROW_LEVEL = {"good": "good", "ok": "ok", "poor": "poor"}
+
+
 def _breakdown_rows(item, detail, score, fair):
+    """v30.7. One row, kept short for reading in a store.
+
+      no price: "What it should cost"  About $50 to $115 for this.
+      price:    "Worth it" (coloured)  $90 fits the fair price of $50 to $115.
+
+    The longer working sits in the row's drop-down."""
     if not detail or score is None:
         return []
-    tips = []
+    price = item.get("price")
+    if fair and fair.get("level"):
+        rng = f"{_money(fair['fair_low'])} to {_money(fair['fair_high'])}"
+        line = _SHORT[fair["level"]].format(p=_money(price), r=rng)
+        more = [fair["line"], fair.get("could_be_line"), PRICE_ROW_DETAIL]
+        return [{"side": "price", "level": _ROW_LEVEL.get(fair.get("colour"), "unknown"),
+                 "icon": "tag", "title": fair["label"], "line": line,
+                 "detail": " ".join(x for x in more if x)}]
     if fair:
-        line = fair["range_line"]
+        line = (f"About {_money(fair['fair_low'])} to {_money(fair['fair_high'])} "
+                f"for {_what(detail['matched'], fair['_cost']['group'])} made like this.")
         tips = [u["tip"] for u in fair.get("unknowns", []) if u["key"] in ("country", "grade")]
-        if fair.get("could_be_line"):
-            line = f"{line} {fair['could_be_line']}"
-        title = "What it should cost"
-    else:
-        # No garment type yet: a few common pieces in this fabric.
-        material = fabric.material_class(detail["matched"])
-        refs = LEATHER_REFERENCE_GROUPS if material == "real leather" else REFERENCE_GROUPS
-        bits = []
-        for g in refs:
-            v = assess(dict(item, category=g, price=None), detail, score)
-            if v:
-                bits.append(f"{_REF_WORDS[g]} {_money(v['fair_low'])} to {_money(v['fair_high'])}")
-        if not bits:
-            return []
-        title = "What it should cost"
-        line = f"Pieces in {_lead(detail['matched'])} sell fairly for about: {', '.join(bits)}."
-        tips = ["Pick what it is to see the fair price for this piece."]
-    detail_text = " ".join([PRICE_ROW_DETAIL] + tips)
+        more = [fair.get("could_be_line"), PRICE_ROW_DETAIL] + tips
+        return [{"side": "price", "level": "unknown", "icon": "tag",
+                 "title": "What it should cost", "line": line,
+                 "detail": " ".join(x for x in more if x)}]
+    # No garment type yet: a few common pieces in this fabric.
+    material = fabric.material_class(detail["matched"])
+    refs = LEATHER_REFERENCE_GROUPS if material == "real leather" else REFERENCE_GROUPS
+    bits = []
+    for g in refs:
+        v = assess(dict(item, category=g, price=None), detail, score)
+        if v:
+            bits.append(f"{_REF_WORDS[g]} {_money(v['fair_low'])} to {_money(v['fair_high'])}")
+    if not bits:
+        return []
+    line = f"In {_lead(detail['matched'])}: {', '.join(bits)}."
+    if price is not None:
+        line += f" Pick what it is to check your {_money(price)}."
+    tip = ("Pick what it is under Find one that is better made to check your price."
+           if price is not None else "Pick what it is to see the fair price for this piece.")
     return [{"side": "price", "level": "unknown", "icon": "tag",
-             "title": title, "line": line, "detail": detail_text}]
+             "title": "What it should cost", "line": line,
+             "detail": " ".join([PRICE_ROW_DETAIL, tip])}]

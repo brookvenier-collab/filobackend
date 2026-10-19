@@ -1433,7 +1433,17 @@ def test_v30_fair_price():
     d = fabric.quality_detail("100% wool")
     rows = value.breakdown_rows(it, d, d["score"], value.assess(it, d, d["score"]))
     check("with a category: the fair price for this piece",
-          rows[0]["line"].startswith("A fair price for a 100% wool sweater"), True)
+          rows[0]["line"].startswith("About $") and "100% wool sweater" in rows[0]["line"], True)
+    # v30.7: once a price is added, the same row becomes the verdict.
+    it2 = dict(it, price=90)
+    v2 = value.assess(it2, d, d["score"])
+    r2 = value.breakdown_rows(it2, d, d["score"], v2)[0]
+    check("with a price the row is the verdict", (r2["title"], r2["level"]), (v2["label"], "good"))
+    check("...in one short line", r2["line"].startswith("$90") and len(r2["line"]) < 70, True)
+    it3 = {"composition": "64% cotton 36% polyester", "price": 40}
+    d3 = fabric.quality_detail(it3["composition"])
+    r3 = value.breakdown_rows(it3, d3, d3["score"], value.assess(it3, d3, d3["score"]))[0]
+    check("a price with no category asks what it is", "Pick what it is to check your $40" in r3["line"], True)
     leather = fabric.quality_detail("100% lambskin leather")
     rows = value.breakdown_rows({"composition": "100% lambskin leather"}, leather, leather["score"], None)
     check("leather names a bag and a jacket", ("a bag" in rows[0]["line"], "a jacket" in rows[0]["line"]), (True, True))
