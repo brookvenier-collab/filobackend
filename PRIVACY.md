@@ -138,3 +138,16 @@ price bands already in `scan_events`, counts distinct devices, and reports a
 kind of piece only once at least K_ANONYMITY_FLOOR devices are in it. Session
 hashes are used to count and never leave the function; the app only ever gets
 a median, a spread and a count.
+
+## v31: shopper notes and wear checks (voices.py)
+
+- A note is one tap on a fixed chip ("Feels thin"). A wear check is one of three
+  fixed answers ("Still like new", "Some wear", "Fell apart"). No free text.
+- Stored with the same daily-rotating session hash as scan events, the hour,
+  and what the piece is: brand, kind of piece, main fibre, country. No account,
+  no device ID, no price.
+- The 30 and 90 day reminders are scheduled on the phone. The server never
+  knows a reminder exists; it only receives the answer if one is tapped.
+- A line is shown on a verdict only when at least NOTE_FLOOR (default 5)
+  different shoppers are behind it. Nothing is sold from this table.
+- The app's "Share anonymous data" switch turns both off.

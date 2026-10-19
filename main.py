@@ -29,6 +29,7 @@ import seams
 import homecard
 import breakdown
 import value
+import voices
 
 app = FastAPI(title="Filo AI")
 
@@ -40,6 +41,7 @@ def _startup():
     accounts.init_schema()
     fund.init_schema()
     homecard.init_schema()
+    voices.init_schema()
     products.init_schema()
     products.purge_votes()
     fund.start_daily_thread()
@@ -291,6 +293,10 @@ def analyze(req: AnalyzeRequest):
     result["breakdown"] = (result.get("breakdown") or []) + \
         value.breakdown_rows(value_item, value_detail, score, fair)
     result["breakdown_sections"] = BREAKDOWN_SECTIONS
+    # v31: what Filo shoppers said about pieces like this (voices.py). Only
+    # from a group over the floor; empty until then. Never waits on the database.
+    result["shoppers"] = voices.shopper_lines(item["composition"], item.get("category"),
+                                              item.get("brand"))
 
     if (req.item.mode or "full") == "score" or score is None:
         # The fast path: verdict only. The app asks again with mode="full" (or
@@ -586,7 +592,24 @@ def config(request: Request):
     out["categories"] = APP_CATEGORIES
     out["colors"] = APP_COLORS
     out["breakdown_sections"] = BREAKDOWN_SECTIONS
+    # v31: the note chips and the wear check-in answers (voices.py).
+    out["voices"] = voices.config()
     return out
+
+
+# ----------------------------------------------------------------- v31 shopper voices
+# One-tap notes from the verdict card and the 30/90 day "How's it holding up?"
+# answers. Anonymous: see voices.py. Always 200, so the app never retries or
+# shows an error for something the shopper did as a favour.
+
+@app.post("/notes")
+def post_note(n: voices.NoteIn):
+    return {"ok": voices.record_note(n)}
+
+
+@app.post("/wear")
+def post_wear(w: voices.WearIn):
+    return {"ok": voices.record_wear(w)}
 
 
 # ----------------------------------------------------------------- home card admin

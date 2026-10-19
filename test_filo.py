@@ -1576,6 +1576,45 @@ def test_v30_8_the_store():
           catalog.colour_note([{"colour_match": False, "fit": "pricier"}], "black").startswith("We could not find a black"), True)
 
 
+def test_v31_shopper_voices():
+    """One-tap notes and wear checks: a floor, plain words, never a broken scan."""
+    import voices
+    print("\n=== v31: what Filo shoppers say ===")
+    key = voices.piece_key("100% Polyester", "women's top", "Oak + Fort")
+    check("filed under brand, garment, fibre", key, ("oak + fort", "top", "polyester"))
+    check("bare composition still files", voices.piece_key("100% cotton", None, None)[2], "cotton")
+
+    def rows(kind, answer, n, days=None, brand="oak + fort", start=0):
+        return [(kind, answer, days, f"s{start + i}", brand, "top", "polyester") for i in range(n)]
+
+    few = voices.build_cells(rows("note", "thin", voices.NOTE_FLOOR - 1))
+    check("under the floor says nothing", voices.lines_for(few, "oak + fort", "top", "polyester"), [])
+
+    cells = voices.build_cells(rows("note", "thin", 4) + rows("note", "runs_small", 1, start=4)
+                               + rows("note", "soft", 1, start=5))
+    check("the note most shoppers chose", voices.lines_for(cells, "oak + fort", "top", "polyester"),
+          ["Shoppers noticed: it feels thin."])
+
+    # Another brand's polyester tops count toward "polyester tops" in general.
+    other = voices.build_cells(rows("note", "thin", 6, brand="other"))
+    check("falls back to the kind of piece", voices.lines_for(other, "new brand", "top", "polyester"),
+          ["Shoppers noticed: it feels thin."])
+
+    wear = voices.build_cells(rows("wear", "like_new", 5, days=30) + rows("wear", "some_wear", 1, days=30, start=5))
+    check("still new after a month", voices.lines_for(wear, "oak + fort", "top", "polyester"),
+          ["Filo shoppers say pieces like this still look new after a month."])
+    bad = voices.build_cells(rows("wear", "fell_apart", 2, days=90) + rows("wear", "like_new", 3, days=90, start=2))
+    check("fell apart is said plainly", voices.lines_for(bad, "oak + fort", "top", "polyester"),
+          ["Some Filo shoppers say pieces like this fell apart within three months."])
+
+    check("unknown note refused", voices.record_note(voices.NoteIn(session_id="abcdefgh", note="ugly")), False)
+    check("no database, no crash", voices.shopper_lines("100% polyester", "top", "x"), [])
+    lines = " ".join(l for c in (cells, wear, bad) for l in voices.lines_for(c, "oak + fort", "top", "polyester"))
+    check("no dashes in what shoppers read", "\u2014" in lines or "\u2013" in lines, False)
+    check("chips go to the app", [c["label"] for c in voices.config()["note_chips"]][:2],
+          ["Feels thin", "Nice weight"])
+
+
 if __name__ == "__main__":
     test_parser()
     test_scoring()
@@ -1616,6 +1655,7 @@ if __name__ == "__main__":
     test_v30_3_every_fibre_on_the_tag()
     test_v30_5_more_types_and_true_colour()
     test_v30_8_the_store()
+    test_v31_shopper_voices()
     print()
     if FAILS:
         print(f"{len(FAILS)} FAILURES")
