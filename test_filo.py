@@ -1472,6 +1472,21 @@ def test_v30_3_every_fibre_on_the_tag():
     row = value.breakdown_rows({"composition": "64% cotton 36% polyester"}, d, d["score"], None)[0]
     check("the fair price line names the whole make", "64% cotton, 36% polyester" in row["line"], True)
 
+    import main
+    check("a partial app read is corrected by the whole tag",
+          main._best_composition("64% Polyester", "64% COTTON / COTON 36% POLYESTER MADE IN CHINA"),
+          "64% cotton, 36% polyester")
+    check("a complete app read is kept",
+          main._best_composition("64% Cotton, 36% Polyester", "junk 100% wool"), "64% Cotton, 36% Polyester")
+    check("the tag's lining comes along",
+          main._best_composition("80% Wool", "Shell: 80% wool 20% polyamide Lining: 100% polyester"),
+          "80% wool, 20% polyamide Lining: 100% polyester")
+    from fastapi.testclient import TestClient
+    r = TestClient(main.app).post("/analyze", json={"item": {
+        "composition": "64% Polyester", "tag_text": "64% COTTON 36% POLYESTER", "mode": "score"}}).json()
+    check("...and the verdict is the blend's", (round(r["score"], 1), r["composition_read"]),
+          (6.1, "64% cotton, 36% polyester"))
+
 
 if __name__ == "__main__":
     test_parser()

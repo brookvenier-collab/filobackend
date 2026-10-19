@@ -4,6 +4,7 @@ Run locally:   uvicorn main:app --reload   →   http://localhost:8000/docs
 The one endpoint the app uses is POST /analyze.
 """
 import os
+import re
 from datetime import datetime, timezone
 from typing import List, Optional
 from concurrent.futures import ThreadPoolExecutor
@@ -150,6 +151,28 @@ def root():
     return {"ok": True, "service": "Filo AI"}
 
 
+def _composition_total(text):
+    """Sum of the percentages actually written in the main fabric. A lone
+    "64% polyester" is 64 here, even though it would score as the whole piece."""
+    main, _ = fabric.split_sections(text or "")
+    t = fabric.translate_tag(main)
+    return sum(int(x) for x in re.findall(r"(\d{1,3})\s*%", t) if 0 < int(x) <= 100)
+
+
+def _best_composition(composition, tag_text):
+    """v30.3. The app sends the fibres it read, and (1.2+) the whole tag. When
+    the app's read doesn't add up to the whole piece but the tag does, the tag
+    wins, so a partial camera read can never become the verdict."""
+    if not tag_text or 95 <= _composition_total(composition) <= 105:
+        return composition
+    main, support = fabric.split_sections(tag_text)
+    canon = products.canonical_composition(main)
+    if not canon:
+        return composition
+    lining = products.canonical_composition(support) if support.strip() else None
+    return canon + (f" Lining: {lining}" if lining else "")
+
+
 def _apply_fair(result, fair, market_check=None):
     """Put the fair price on the verdict, and on the fields the 1.x app reads."""
     result["fair_price"] = value.public(fair)
@@ -190,7 +213,8 @@ def _value_alternatives(alternatives, item, country):
 def analyze(req: AnalyzeRequest):
     # v29: a barcode Filo has seen before fills in what the shopper didn't send.
     known = products.lookup(req.item.gtin) if req.item.gtin else None
-    scanned_composition = (req.item.composition or "").strip()
+    scanned_composition = _best_composition((req.item.composition or "").strip(),
+                                            req.item.tag_text)
     from_db = not scanned_composition and bool(products.value(known, "composition"))
     item = {
         "name": req.item.name or products.value(known, "name"),
@@ -211,6 +235,8 @@ def analyze(req: AnalyzeRequest):
         item["construction"] = sorted(set(item["construction"]) | set(seam_tokens))
 
     result = fabric.analyze(item)
+    # v30.3: what Filo actually scored, so the app can show the full make.
+    result["composition_read"] = item["composition"] or None
     result["product"] = _product_step(req, known, scanned_composition, from_db,
                                       result.get("score"))
     if req.item.seam_image:
