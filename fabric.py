@@ -87,6 +87,61 @@ def material_class(matched):
 KNOWN_FIBERS = set(FIBER_QUALITY.keys()) | {"merino"}
 
 
+# ----------------------------------------------------------------- v30.3 tags
+# Care tags in Canada are bilingual and many imports print five languages. A
+# fibre word Filo didn't know ("coton", "Baumwolle", or OCR's "C0TTON") used to
+# be skipped, and its percentage then attached to the next fibre it did know:
+# "64% coton 36% polyester" came out as 100% polyester. These read the tag in
+# English first, so every fibre on it is seen.
+_TAG_WORDS = [
+    # French
+    (r"coton", "cotton"), (r"laine", "wool"), (r"m[ée]rinos", "merino"), (r"soie", "silk"),
+    (r"cachemire", "cashmere"), (r"lin", "linen"), (r"chanvre", "hemp"),
+    (r"polyamide", "polyamide"), (r"[ée]lasthanne", "elastane"), (r"acrylique", "acrylic"),
+    (r"viscose", "viscose"), (r"rayonne", "rayon"), (r"cuir", "leather"),
+    (r"doublure", "lining"), (r"tissu\s+principal|ext[ée]rieur|dessus", "shell"),
+    # Spanish / Portuguese
+    (r"algod[oó]n|algod[aã]o", "cotton"), (r"lana|l[aã]", "wool"), (r"seda", "silk"),
+    (r"lino|linho", "linen"), (r"poli[ée]ster", "polyester"), (r"poliamida", "polyamide"),
+    (r"elastano", "elastane"), (r"acr[ií]lico", "acrylic"), (r"cuero|couro|piel", "leather"),
+    (r"forro", "lining"), (r"cachemira|caxemira", "cashmere"),
+    # Italian
+    (r"cotone", "cotton"), (r"seta", "silk"), (r"poliestere", "polyester"),
+    (r"elastan", "elastane"), (r"pelle", "leather"), (r"fodera", "lining"),
+    # German / Dutch
+    (r"baumwolle|katoen", "cotton"), (r"schurwolle|wolle|wol", "wool"), (r"seide|zijde", "silk"),
+    (r"leinen|linnen", "linen"), (r"elasthan", "elastane"), (r"leder|leer", "leather"),
+    (r"futter|voering", "lining"),
+]
+_TAG_RE = [(re.compile(r"(?<![a-z\u00c0-\u024f])(?:" + pat + r")(?![a-z\u00c0-\u024f])", re.I), en)
+           for pat, en in _TAG_WORDS]
+# EU fibre codes (EU 1007/2011, Annex I), read only straight after a percentage
+# so "co" in an ordinary word is never taken for cotton.
+_FIBRE_CODES = {"co": "cotton", "pes": "polyester", "pl": "polyester", "pa": "polyamide",
+                "ea": "elastane", "el": "elastane", "wo": "wool", "wv": "wool", "wp": "wool",
+                "li": "linen", "se": "silk", "vi": "viscose", "cv": "viscose", "cmd": "modal",
+                "md": "modal", "cly": "lyocell", "ly": "lyocell", "pc": "acrylic", "acr": "acrylic",
+                "ws": "cashmere", "cu": "cupro", "pu": "polyurethane", "ca": "acetate"}
+_CODE_RE = re.compile(r"(\d{1,3}\s*%\s*)(" + "|".join(sorted(_FIBRE_CODES, key=len, reverse=True))
+                      + r")\b", re.I)
+# OCR reads O as 0 inside words ("C0TTON", "P0LYESTER").
+_OCR_ZERO = re.compile(r"(?<=[A-Za-z])0(?=[A-Za-z])")
+
+
+def translate_tag(text):
+    """The tag in English fibre words. Idempotent, and English stays as it is."""
+    t = text or ""
+    t = _OCR_ZERO.sub("o", t)
+    # OCR drops spaces: "64%cotton36%polyester". Put them back between a
+    # percentage and a word, and between a fibre word and the next number.
+    t = re.sub(r"%(?=[A-Za-z\u00c0-\u024f])", "% ", t)
+    t = re.sub(r"(?<=[A-Za-z\u00c0-\u024f])(?=\d{1,3}\s*%)", " ", t)
+    t = _CODE_RE.sub(lambda m: m.group(1) + _FIBRE_CODES[m.group(2).lower()], t)
+    for rx, en in _TAG_RE:
+        t = rx.sub(en, t)
+    return t
+
+
 def _clean(name):
     """'organic combed cotton' → 'cotton' if we recognise anything in it."""
     name = name.strip().lower()
@@ -110,7 +165,7 @@ def parse_composition(text, allow_bare=True):
     someone *else's* product listing, where guessing would mean recommending an
     item we cannot actually vouch for.
     """
-    text = normalize_materials(text)
+    text = normalize_materials(translate_tag(text))
 
     # OCR often splits "100%" into "1 00%" or "10 0%" (a gap in the tag's font).
     # Read as written, that becomes "1% leather". Rejoin digits that only make
@@ -136,13 +191,33 @@ def parse_composition(text, allow_bare=True):
         if not numbers:
             continue
 
+        # v30.3: a column tag lists the numbers, then the fibres, in the same
+        # order ("64%  36%" over "COTTON  POLYESTER"). Read it row by row.
+        if pattern.endswith("%") and len(numbers) >= 2 \
+                and numbers[-1].end() <= fiber_spans[0][0]:
+            names = []
+            for _, _, f in fiber_spans:
+                if f not in names:
+                    names.append(f)
+            if len(names) == len(numbers):
+                col = _dedupe([(f, int(m.group(1))) for f, m in zip(names, numbers)])
+                if col and 95 <= sum(p for _, p in col) <= 105:
+                    return col
+
+        starts = [m.start() for m in numbers]
+
         def nearest(m, side):
-            """Closest fiber after / before this number, within 25 chars."""
+            """Closest fiber after / before this number, within 25 chars, and
+            never past another number: "64% coton 36% polyester" must not give
+            the 64 to polyester just because "coton" was unknown."""
+            i = starts.index(m.start())
+            nxt = starts[i + 1] if i + 1 < len(starts) else len(text)
+            prv = numbers[i - 1].end() if i > 0 else 0
             best, best_dist = None, 26
             for s, e, fiber in fiber_spans:
-                if side == "after" and s >= m.end():
+                if side == "after" and s >= m.end() and s < nxt:
                     dist = s - m.end()
-                elif side == "before" and e <= m.start():
+                elif side == "before" and e <= m.start() and e > prv:
                     dist = m.start() - e
                 else:
                     continue
@@ -164,9 +239,11 @@ def parse_composition(text, allow_bare=True):
             if fiber:
                 pairs.append((fiber, int(m.group(1))))
         pairs = _dedupe(pairs)
-        if len(pairs) == 1 and pairs[0][1] < 100:
-            # One fiber on the tag is the whole garment. A lone "1%" or "10%"
-            # is a misread, not a composition.
+        # One fiber on the tag is the whole garment, and a lone "1%" or "10%" is
+        # a misread. v30.3: but only when that was the tag's only number. With
+        # "64% ???? 36% polyester" the polyester is 36%, never 100%.
+        stated = [int(m.group(1)) for m in numbers if 0 < int(m.group(1)) <= 100]
+        if len(pairs) == 1 and pairs[0][1] < 100 and len(stated) <= 1:
             pairs = [(pairs[0][0], 100)]
         if pairs:
             return pairs
@@ -181,6 +258,20 @@ def parse_composition(text, allow_bare=True):
             found.append(fiber)
     share = 100 // len(found)
     return [(f, share) for f in found]
+
+
+def unread_share(text):
+    """How much of the tag, in percent, had a number Filo couldn't match to a
+    fibre ("64% xyz 36% polyester" -> 64). 0 when everything was read. Only
+    looks at the main fabric, and only when the stated numbers add up."""
+    main, _ = split_sections(text)
+    t = normalize_materials(translate_tag(main))
+    stated = [int(x) for x in re.findall(r"(\d{1,3})\s*%", t) if 0 < int(x) <= 100]
+    if not stated or not (95 <= sum(stated) <= 105):
+        return 0
+    read = sum(p for _, p in parse_composition(main, allow_bare=False))
+    gap = sum(stated) - read
+    return gap if gap >= 5 else 0
 
 
 def _dedupe(pairs):
@@ -383,7 +474,7 @@ def lining_note(composition):
 
 def split_sections(composition):
     """(main_text, support_text). Unlabelled text counts as main."""
-    text = composition or ""
+    text = translate_tag(composition or "")
     marks = list(_SECTION_RE.finditer(text))
     if not marks:
         return text, ""
@@ -1003,8 +1094,12 @@ def analyze(item):
     if material:
         flags = ["Don't machine wash — spot clean, and keep it away from direct heat."] + flags
 
+    # v30.3: part of the tag Filo couldn't read is said out loud, never folded
+    # into the fibres it could.
+    unread = unread_share(composition)
     return {
         "score": score,
+        "unread_pct": unread or None,
         "material": material,
         "verdict": verdict(score),
         "reasons": _with_evidence(_with_lining(reasons(score, matched, price), composition),

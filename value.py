@@ -625,12 +625,12 @@ PRICE_ROW_DETAIL = (
 
 
 def _lead(matched):
-    key = max(matched, key=lambda m: m[1])
-    total = sum(p for _, p, *_ in matched) or 100
-    pct = round(100 * key[1] / total)
-    name = "leather" if key[0] == "leather" else key[0]
-    return ("leather" if name == "leather"
-            else f"100% {name}" if pct >= 100 else f"{pct}% {name}")
+    """The whole make, as the tag says it: '64% cotton, 36% polyester'."""
+    parts = sorted(matched, key=lambda m: -m[1])
+    if len(parts) == 1:
+        k = parts[0][0]
+        return "leather" if k == "leather" else f"100% {k}"
+    return ", ".join(f"{int(p) if float(p).is_integer() else p}% {k}" for k, p, *_ in parts[:4])
 
 
 def breakdown_rows(item, detail, score, fair=None):
@@ -663,9 +663,7 @@ def _breakdown_rows(item, detail, score, fair):
         if not bits:
             return []
         title = "What it should cost"
-        lead = _lead(detail["matched"])
-        lead = lead.lower() if lead[0].isalpha() else lead
-        line = f"Pieces in {lead} sell fairly for about: {', '.join(bits)}."
+        line = f"Pieces in {_lead(detail['matched'])} sell fairly for about: {', '.join(bits)}."
         tips = ["Pick what it is to see the fair price for this piece."]
     detail_text = " ".join([PRICE_ROW_DETAIL] + tips)
     return [{"side": "price", "level": "unknown", "icon": "tag",

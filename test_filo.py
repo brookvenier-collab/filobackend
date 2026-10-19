@@ -1443,6 +1443,36 @@ def test_v30_fair_price():
     check("the first quick scan carries the row", any(x["side"] == "price" for x in r["breakdown"]), True)
 
 
+def test_v30_3_every_fibre_on_the_tag():
+    """A blend is read as a blend, whatever language or layout the tag uses.
+    One fibre must never take another's share."""
+    import value
+    print("\n=== v30.3: every fibre on the tag ===")
+    want = [("cotton", 64), ("polyester", 36)]
+    for tag in ["64% cotton 36% polyester", "64% coton 36% polyester",
+                "64% algodón 36% poliéster", "64% BAUMWOLLE 36% POLYESTER",
+                "64% cotone 36% poliestere", "64% C0TTON 36% POLYESTER",
+                "64%cotton36%polyester", "64%\n36%\nCOTTON\nPOLYESTER", "64% CO 36% PES",
+                "COTON 64% POLYESTER 36%",
+                "64% COTTON 36% POLYESTER\n64% COTON 36% POLYESTER\n64% ALGODÓN 36% POLIÉSTER"]:
+        check(f"reads {tag!r}", fabric.parse_composition(tag), want)
+    check("an unknown word never hands its share to the next fibre",
+          fabric.parse_composition("64% xyzfibre 36% polyester"), [("polyester", 36)])
+    r = fabric.analyze({"composition": "64% xyzfibre 36% polyester"})
+    check("...and the unread share is said", r["unread_pct"], 64)
+    check("fully read tags have nothing unread", fabric.analyze({"composition": "64% cotton 36% polyester"})["unread_pct"], None)
+    check("a lone fibre is still the whole piece", fabric.parse_composition("cotton"), [("cotton", 100)])
+    check("a French lining is a lining",
+          fabric.split_sections("Extérieur: 100% laine Doublure: 100% polyester")[1].strip(), "100% polyester")
+    check("'lining' is not read as linen", fabric.parse_composition("Lining: 100% polyester"), [("polyester", 100)])
+    check("a cotton blend scores as a blend",
+          fabric.quality_detail("64% coton 36% polyester")["score"],
+          fabric.quality_detail("64% cotton 36% polyester")["score"])
+    d = fabric.quality_detail("64% cotton 36% polyester")
+    row = value.breakdown_rows({"composition": "64% cotton 36% polyester"}, d, d["score"], None)[0]
+    check("the fair price line names the whole make", "64% cotton, 36% polyester" in row["line"], True)
+
+
 if __name__ == "__main__":
     test_parser()
     test_scoring()
@@ -1480,6 +1510,7 @@ if __name__ == "__main__":
     test_v24_colour_changes_the_list_and_hoodies()
     test_v25_colour_from_the_photo()
     test_v30_fair_price()
+    test_v30_3_every_fibre_on_the_tag()
     print()
     if FAILS:
         print(f"{len(FAILS)} FAILURES")

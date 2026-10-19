@@ -168,6 +168,13 @@ def build(composition, construction=None, result=None):
                     row["line"] = "The lining is plastic. It is often the first part to wear out."
                 rows.append(row)
 
+    if result.get("unread_pct"):
+        rows.insert(0, {"side": "bad", "level": "unknown", "icon": "tag",
+                        "title": f"{result['unread_pct']}% not read",
+                        "line": "Part of this tag didn't read. The score only counts what did.",
+                        "detail": "Scan the tag again in good light, or type the fabric in. "
+                                  "Every fibre on the tag changes the score."})
+
     tokens = ((result.get("evidence") or {}).get("construction")) or []
     for t in tokens:
         if t in MAKE and t in fabric.CONSTRUCTION:
