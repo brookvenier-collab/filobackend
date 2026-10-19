@@ -259,6 +259,11 @@ def analyze(req: AnalyzeRequest):
                                          construction=item["construction"]) if score is not None else None
     fair = value.assess(value_item, value_detail, score)
     _apply_fair(result, fair)
+    # v30.2: the generic fair price on the verdict page itself, as a breakdown
+    # row the app shows under "WHAT IT SHOULD COST". From the fibre (and the
+    # garment once picked), never from the shopper's price.
+    result["breakdown"] = (result.get("breakdown") or []) + \
+        value.breakdown_rows(value_item, value_detail, score, fair)
 
     if (req.item.mode or "full") == "score" or score is None:
         # The fast path: verdict only. The app asks again with mode="full" (or

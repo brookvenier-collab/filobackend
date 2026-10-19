@@ -551,7 +551,12 @@ def _assess(item, detail, score, market_check):
             level = GET_WHAT_YOU_PAY
             line = f"Cheap, and made like it. Expect it to wear out sooner. {range_line}"
     elif price <= above:
-        if q == "good" and price > exact_hi:
+        if missing and price > hi and q != "low":
+            # Above the usual range, but within what the unknowns allow. Say both.
+            level = FAIR_FOR_WHAT
+            line = (f"Above the usual fair price ({rng}), but it could fairly cost up to "
+                    f"{_money(chi)} depending on {' and '.join(missing)}. Check the tag.")
+        elif q == "good" and price > exact_hi:
             level, line = WORTH_IT, f"At the top of a fair price for this make. {range_line}"
         elif q == "good":
             level, line = WORTH_IT, f"The price matches the make. {range_line}"
@@ -600,3 +605,68 @@ def compact(v):
     return {"level": v.get("level"), "label": v.get("label"), "colour": v.get("colour"),
             "fair_low": v.get("fair_low"), "fair_high": v.get("fair_high"),
             "currency": v.get("currency")}
+
+
+# ------------------------------------------------------------------ result page
+# v30.2. The fair price on the main verdict page, as a breakdown row the app
+# shows under "WHAT IT SHOULD COST", straight after "HOLDING IT BACK". Generic
+# on purpose: it comes from the fibre (and the garment, once known), never from
+# a price. The price verdict itself stays with the better made options.
+REFERENCE_GROUPS = ["top", "dress", "coat"]
+LEATHER_REFERENCE_GROUPS = ["bag", "jacket"]
+_REF_WORDS = {"top": "a top", "dress": "a dress", "coat": "a coat",
+              "bag": "a bag", "jacket": "a jacket"}
+
+PRICE_ROW_DETAIL = (
+    "Worked out from what it's made of: the fibre and its grade, how much fabric "
+    "goes into the piece, how it's made and where, and a fair shop markup. "
+    "It's not a judgement on the brand or the shop. To check your price, add it "
+    "under Find one that is better made.")
+
+
+def _lead(matched):
+    key = max(matched, key=lambda m: m[1])
+    total = sum(p for _, p, *_ in matched) or 100
+    pct = round(100 * key[1] / total)
+    name = "leather" if key[0] == "leather" else key[0]
+    return ("leather" if name == "leather"
+            else f"100% {name}" if pct >= 100 else f"{pct}% {name}")
+
+
+def breakdown_rows(item, detail, score, fair=None):
+    """[row] for the result page. [] when there's nothing honest to say."""
+    try:
+        return _breakdown_rows(item, detail, score, fair)
+    except Exception:                       # noqa: BLE001  never block a verdict
+        return []
+
+
+def _breakdown_rows(item, detail, score, fair):
+    if not detail or score is None:
+        return []
+    tips = []
+    if fair:
+        line = fair["range_line"]
+        tips = [u["tip"] for u in fair.get("unknowns", []) if u["key"] in ("country", "grade")]
+        if fair.get("could_be_line"):
+            line = f"{line} {fair['could_be_line']}"
+        title = "What it should cost"
+    else:
+        # No garment type yet: a few common pieces in this fabric.
+        material = fabric.material_class(detail["matched"])
+        refs = LEATHER_REFERENCE_GROUPS if material == "real leather" else REFERENCE_GROUPS
+        bits = []
+        for g in refs:
+            v = assess(dict(item, category=g, price=None), detail, score)
+            if v:
+                bits.append(f"{_REF_WORDS[g]} {_money(v['fair_low'])} to {_money(v['fair_high'])}")
+        if not bits:
+            return []
+        title = "What it should cost"
+        lead = _lead(detail["matched"])
+        lead = lead.lower() if lead[0].isalpha() else lead
+        line = f"Pieces in {lead} sell fairly for about: {', '.join(bits)}."
+        tips = ["Pick what it is to see the fair price for this piece."]
+    detail_text = " ".join([PRICE_ROW_DETAIL] + tips)
+    return [{"side": "price", "level": "unknown", "icon": "tag",
+             "title": title, "line": line, "detail": detail_text}]

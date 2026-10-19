@@ -1343,7 +1343,11 @@ def test_v30_fair_price():
 
     # v28.1's lesson: an ordinary $30 cotton tee is not called a rip-off. With the
     # grade and country unknown, "high" is judged against the generous reading.
-    check("a $30 cotton tee is not flagged", fair("100% cotton", "t-shirt", 30)["level"], value.WORTH_IT)
+    check("a $30 cotton tee is not flagged",
+          fair("100% cotton", "t-shirt", 30)["level"] in (value.WORTH_IT, value.FAIR_FOR_WHAT), True)
+    above = fair("100% wool", "sweater", 120)
+    check("above the usual range but within the unknowns says both",
+          ("could fairly cost up to" in above["line"], above["level"]), (True, value.FAIR_FOR_WHAT))
 
     # A low price rules grades out; it never proves the piece is good.
     check("$50 cashmere, grade unknown: check the grade",
@@ -1417,6 +1421,26 @@ def test_v30_fair_price():
     main._value_alternatives(alts, {"category": "sweater"}, "US")
     check("options carry a fair price", all("fair_price" in a for a in alts), True)
     check("better value first within the same fit", [a["name"] for a in alts], ["B", "A", "C"])
+
+    # v30.2: the fair price on the verdict page, generic, from the fabric.
+    d = fabric.quality_detail("64% polyester 36% cotton")
+    rows = value.breakdown_rows({"composition": "64% polyester 36% cotton", "country": "CA"},
+                                d, d["score"], None)
+    check("no category: one 'what it should cost' row", [r["side"] for r in rows], ["price"])
+    check("...naming a few common pieces", all(w in rows[0]["line"] for w in ("a top", "a dress", "a coat")), True)
+    check("...and pointing to the price check", "better made" in rows[0]["detail"], True)
+    it = {"composition": "100% wool", "category": "sweater", "country": "CA"}
+    d = fabric.quality_detail("100% wool")
+    rows = value.breakdown_rows(it, d, d["score"], value.assess(it, d, d["score"]))
+    check("with a category: the fair price for this piece",
+          rows[0]["line"].startswith("A fair price for a 100% wool sweater"), True)
+    leather = fabric.quality_detail("100% lambskin leather")
+    rows = value.breakdown_rows({"composition": "100% lambskin leather"}, leather, leather["score"], None)
+    check("leather names a bag and a jacket", ("a bag" in rows[0]["line"], "a jacket" in rows[0]["line"]), (True, True))
+    from fastapi.testclient import TestClient
+    r = TestClient(main.app).post("/analyze", json={"item": {"composition": "64% polyester 36% cotton",
+                                                             "mode": "score"}}).json()
+    check("the first quick scan carries the row", any(x["side"] == "price" for x in r["breakdown"]), True)
 
 
 if __name__ == "__main__":
