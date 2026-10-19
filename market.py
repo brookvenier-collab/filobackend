@@ -28,6 +28,7 @@ THE RULES (each one is there to stop an overclaim)
 - Three levels, and the line always shows what it's based on.
 - Talks about the piece and the price, never the brand or the shop.
 """
+import re
 import statistics
 from datetime import date
 
@@ -39,7 +40,16 @@ MIN_LISTINGS = 20
 MIN_SHOPS = 5
 DOMINANT_MIN = 70        # the fibre must be at least this % of the piece
 DOMINANT_TOLERANCE = 20  # and within this many points of the scanned piece
-OVERPAY_RATIO = 1.25     # above the 75th percentile AND this far over the median
+# v28.1 (after the first live probe): "You may be overpaying" only past the 90th
+# percentile AND at least twice the median. Listings can't be matched on brand
+# tier the way BLS's models are, and a $30 cotton tee was being flagged against
+# $7 blanks at 1.25x. A false "overpaying" is the error that hurts, so the bar
+# is high on purpose.
+OVERPAY_PERCENTILE = 0.90
+OVERPAY_RATIO = 2.0
+MAX_PER_SHOP = 3         # one shop's deep feed can't set the median
+_KIDS = re.compile(
+    r"\b(kids?|girls?|boys?|toddlers?|baby|babies|infants?|youth|junior|juniors|children'?s?)\b")
 
 NOT_ENOUGH = "Not enough similar listings to compare the price yet."
 DISCLAIMER = ("Compared with current prices for similar pieces. "
@@ -103,7 +113,18 @@ def _regular_price(item):
 def comparable(item, group, matched, department=None):
     """True if this listing can stand in the comparison."""
     title = item.get("title") or ""
-    if brands.is_resale(item.get("source")) or brands.is_resale(title):
+    source = item.get("source")
+    if brands.is_resale(source) or brands.is_resale(title):
+        return False
+    # Multipacks and wholesale lots price per pack, not per piece.
+    if catalog._BULK.search(title.lower()):
+        return False
+    # Children's sizes are a different market.
+    if _KIDS.search(title.lower()):
+        return False
+    # Fast fashion and unverifiable marketplaces are left out. This raises the
+    # median, so it makes "overpaying" harder to reach, never easier.
+    if brands.is_blocked(source):
         return False
     if not catalog.same_garment(title, group):
         return False
@@ -143,7 +164,8 @@ def benchmark(group, matched, department=None, fetch=None, country=None):
     gl, currency, place = MARKETS.get((country or "US").upper(), MARKETS["US"])
     if fetch is None:
         fetch = lambda q, num=100: catalog._fetch(q, num=num, gl=gl)
-    prices, shops, seen = [], set(), set()
+    prices, shops, seen, per_shop = [], set(), set(), {}
+    sample = []
     for q in queries(group, matched, department):
         for item in fetch(q, num=100) or []:
             lk = catalog.listing_key(item)
@@ -155,10 +177,17 @@ def benchmark(group, matched, department=None, fetch=None, country=None):
             p = _regular_price(item)
             if p is None:
                 continue
+            shop = str(item.get("source") or "").lower().strip()
+            if per_shop.get(shop, 0) >= MAX_PER_SHOP:
+                continue
+            per_shop[shop] = per_shop.get(shop, 0) + 1
             prices.append(p)
-            shops.add(str(item.get("source") or "").lower().strip())
+            shops.add(shop)
+            sample.append({"title": item.get("title"), "shop": item.get("source"),
+                           "price": p, "link": item.get("product_link") or item.get("link")})
     if len(prices) < MIN_LISTINGS or len(shops) < MIN_SHOPS:
-        return {"enough": False, "listings": len(prices), "shops": len(shops)}
+        return {"enough": False, "listings": len(prices), "shops": len(shops),
+                "_sample": sample}
     prices.sort()
     return {
         "enough": True,
@@ -167,6 +196,8 @@ def benchmark(group, matched, department=None, fetch=None, country=None):
         "p25": round(_percentile(prices, 0.25)),
         "median": round(statistics.median(prices)),
         "p75": round(_percentile(prices, 0.75)),
+        "p90": round(_percentile(prices, OVERPAY_PERCENTILE)),
+        "_sample": sample,
         "as_of": date.today().strftime("%b %Y"),
         "currency": currency,
         "market": place,
@@ -180,8 +211,9 @@ def check(price, group, matched, department=None, fetch=None, country=None):
     make = describe(matched)
     bench = benchmark(group, matched, department, fetch=fetch, country=country)
     if not bench or not bench.get("enough"):
+        public = {k: v for k, v in (bench or {}).items() if not k.startswith("_")} or None
         return {"level": None, "label": None, "line": NOT_ENOUGH,
-                "based_on": None, "benchmark": bench, "disclaimer": None}
+                "based_on": None, "benchmark": public, "disclaimer": None}
     p25, med, p75 = bench["p25"], bench["median"], bench["p75"]
     word = _GROUP_WORD[group]
     plural = word if word.endswith("s") else word + "s"
@@ -190,10 +222,10 @@ def check(price, group, matched, department=None, fetch=None, country=None):
     if price < p25:
         level = GOOD
         line = f"Below the usual price for {make} {plural}. Similar pieces sell for {rng}."
-    elif price > p75 and price >= OVERPAY_RATIO * med:
+    elif price > bench["p90"] and price >= OVERPAY_RATIO * med:
         level = OVER
         ratio = price / med if med else 0
-        how = f"about {ratio:.1f} times" if ratio >= 1.5 else "well above"
+        how = f"about {ratio:.1f} times"
         line = (f"{p} is {how} the usual price for {make} {plural}. "
                 f"Similar pieces sell for {rng}.")
     else:
@@ -201,5 +233,6 @@ def check(price, group, matched, department=None, fetch=None, country=None):
         line = f"About the usual price for {make} {plural}. Similar pieces sell for {rng}."
     based_on = (f"Based on {bench['listings']} similar listings at {bench['shops']} shops "
                 f"in {'the US' if bench['market'] == 'US' else bench['market']}, {bench['as_of']}. Prices in {bench['currency']}.")
+    public = {k: v for k, v in bench.items() if not k.startswith("_")}
     return {"level": level, "label": LABELS[level], "line": line,
-            "based_on": based_on, "benchmark": bench, "disclaimer": DISCLAIMER}
+            "based_on": based_on, "benchmark": public, "disclaimer": DISCLAIMER}

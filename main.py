@@ -16,6 +16,7 @@ from pydantic import BaseModel
 import fabric
 import catalog
 import market
+import products
 import events
 import aggregates
 import style
@@ -37,6 +38,8 @@ def _startup():
     accounts.init_schema()
     fund.init_schema()
     homecard.init_schema()
+    products.init_schema()
+    products.purge_votes()
     fund.start_daily_thread()
 
 app.add_middleware(
@@ -54,7 +57,8 @@ class Item(BaseModel):
     brand: Optional[str] = None
     category: Optional[str] = None
     price: Optional[float] = None
-    composition: str
+    # v29: optional when a barcode is sent and Filo already knows the product.
+    composition: Optional[str] = ""
     # Optional base64 JPEG of the garment itself (not the care label). Lets the
     # search look for the right SHAPE, not just the right fibre. Omit it and the
     # scan behaves exactly as it did before vision existed.
@@ -89,6 +93,13 @@ class Item(BaseModel):
     # and in which currency. Without it the comparison uses US listings in USD
     # and says so.
     country: Optional[str] = None
+    # v29. The product database (products.py). The barcode from the price tag,
+    # the full text read off the care label (for the RN/CA number and country
+    # made), and the app's random per-launch session ID, which is only ever
+    # stored as a daily-rotating hash to stop double votes.
+    gtin: Optional[str] = None
+    tag_text: Optional[str] = None
+    session_id: Optional[str] = None
 
 
 EXTRA_LOOK_PICKS = {"leather"}
@@ -98,6 +109,41 @@ class AnalyzeRequest(BaseModel):
     item: Item
 
 
+def _product_step(req, known, scanned_composition, from_db, score):
+    """Teach the product database from this scan, then say what it knows."""
+    if not req.item.gtin:
+        return None
+    if products.normalize_gtin(req.item.gtin) is None:
+        return {"status": "invalid", "line": "That barcode didn't read. Try again, or scan the care tag."}
+    if scanned_composition and score is not None:
+        facts = {"brand": req.item.brand, "name": req.item.name,
+                 "category": req.item.category, "composition": scanned_composition}
+        facts.update(products.from_tag(req.item.tag_text or scanned_composition))
+        try:
+            products.contribute(req.item.gtin, facts, req.item.session_id)
+        except Exception:                   # noqa: BLE001  never block a verdict
+            pass
+        known = products.lookup(req.item.gtin)
+    if not known:
+        return {"status": "new",
+                "line": "First scan of this one. Scan the care tag to add it to Filo."}
+    known = dict(known)
+    known["source"] = "filo_database" if from_db else "your_scan"
+    if from_db:
+        known["line"] = ("From Filo's database." if known["status"] in ("confirmed", "locked")
+                         else "From one other scan, not confirmed yet. Check the care tag.")
+    return known
+
+
+@app.get("/products/{gtin}")
+def product_lookup(gtin: str):
+    """v29. What Filo knows about a barcode, with each field's status."""
+    p = products.lookup(gtin)
+    if not p:
+        return {"gtin": products.normalize_gtin(gtin), "status": "new"}
+    return p
+
+
 @app.get("/")
 def root():
     return {"ok": True, "service": "Filo AI"}
@@ -105,14 +151,20 @@ def root():
 
 @app.post("/analyze")
 def analyze(req: AnalyzeRequest):
+    # v29: a barcode Filo has seen before fills in what the shopper didn't send.
+    known = products.lookup(req.item.gtin) if req.item.gtin else None
+    scanned_composition = (req.item.composition or "").strip()
+    from_db = not scanned_composition and bool(products.value(known, "composition"))
     item = {
-        "name": req.item.name,
-        "brand": req.item.brand,
-        "category": req.item.category,
+        "name": req.item.name or products.value(known, "name"),
+        "brand": req.item.brand or products.value(known, "brand"),
+        "category": req.item.category or products.value(known, "category"),
         "price": req.item.price,
-        "composition": req.item.composition,
+        "composition": scanned_composition or products.value(known, "composition") or "",
         "construction": (req.item.construction or [])[:12],
     }
+    if req.item.category is None and item["category"]:
+        req.item.category = item["category"]
     # v26: the garment type sets the base life and wears per wash.
     item["group"] = catalog.garment_group(req.item.category)
 
@@ -122,6 +174,8 @@ def analyze(req: AnalyzeRequest):
         item["construction"] = sorted(set(item["construction"]) | set(seam_tokens))
 
     result = fabric.analyze(item)
+    result["product"] = _product_step(req, known, scanned_composition, from_db,
+                                      result.get("score"))
     if req.item.seam_image:
         # What the seam photo showed, so the app can say so — even when it was
         # nothing ("we couldn't make out the seam — try closer, in good light").
@@ -682,6 +736,71 @@ def shelf_rejection(days: int = 90,
     _require_admin(x_filo_admin)
     return {"floor": aggregates.K_ANONYMITY_FLOOR,
             "rows": aggregates.rejection_signal(days=days)}
+
+
+@app.get("/internal/price-sample")
+def price_sample(composition: str, category: str, department: Optional[str] = None,
+                 country: Optional[str] = None,
+                 x_filo_admin: Optional[str] = Header(default=None)):
+    """v28.1. Every listing a price check would count, so a verdict can be
+    audited by hand. Admin only."""
+    _require_admin(x_filo_admin)
+    _, matched = fabric.quality_score(composition)
+    group = catalog.garment_group(category)
+    dept = catalog.normalize_department(department, category)
+    return market.benchmark(group, matched, dept, country=country) or {}
+
+
+class LockRequest(BaseModel):
+    fields: dict
+
+
+@app.post("/internal/products/{gtin}/lock")
+def product_lock(gtin: str, req: LockRequest,
+                 x_filo_admin: Optional[str] = Header(default=None)):
+    """v29. Set fields from a trusted source (e.g. brand-supplied). Locked
+    fields can't be changed by shopper votes."""
+    _require_admin(x_filo_admin)
+    g = products.normalize_gtin(gtin)
+    if not g:
+        raise HTTPException(status_code=400, detail="invalid barcode")
+    s = products.store()
+    done = []
+    for field, raw in (req.fields or {}).items():
+        if field in products.FIELDS:
+            v = products._clean(field, raw)
+            if v:
+                s.set_locked(g, field, v)
+                done.append(field)
+    return {"gtin": g, "locked": done}
+
+
+class RegistrantRequest(BaseModel):
+    kind: str
+    number: str
+    registrant: str
+    role: Optional[str] = None
+
+
+@app.post("/internal/registrants")
+def registrant_set(req: RegistrantRequest,
+                   x_filo_admin: Optional[str] = Header(default=None)):
+    """v29. Record who an RN (FTC) or CA (Canada) number is registered to,
+    looked up by hand on the public search pages."""
+    _require_admin(x_filo_admin)
+    kind = req.kind.upper()
+    if kind not in ("RN", "CA") or not req.number.strip().isdigit():
+        raise HTTPException(status_code=400, detail="kind must be RN or CA, number digits")
+    num = req.number.strip().lstrip("0") if kind == "RN" else req.number.strip()
+    products.store().set_registrant(kind, num, req.registrant.strip()[:120], req.role)
+    return {"ok": True, "kind": kind, "number": num}
+
+
+@app.get("/internal/products/brands")
+def product_brands(x_filo_admin: Optional[str] = Header(default=None)):
+    """v29. How many distinct products Filo knows per brand."""
+    _require_admin(x_filo_admin)
+    return {"rows": products.brand_summary()}
 
 
 @app.get("/internal/shelf/coverage")

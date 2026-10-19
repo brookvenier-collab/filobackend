@@ -113,3 +113,19 @@ Deleting a Filo account deletes all of these rows.
 App Store privacy labels for accounts + fund: Contact Info → Email, Name;
 Purchases → Purchase History; Usage Data → Product Interaction (scan counts).
 All "linked to you", used for app functionality, not tracking.
+
+## Product database (v29)
+
+`products.py` keeps facts about **garments**, not people, keyed by the barcode:
+
+* `products`: barcode, whether Filo has locked it, first and last day seen, scan count.
+* `product_facts`: brand, name, garment type, fabric, country made, RN / CA number,
+  each with a vote count.
+* `product_votes`: barcode, field, **HMAC(today's salt, session)**, day. Exists only to
+  stop one phone voting twice in a day. Same rotating salt as `scan_events`, so
+  votes can't be linked across days. Rows older than two days are deleted on startup.
+* `rn_registrants`: who an RN or CA number is registered to, entered by hand from
+  the FTC and Competition Bureau public search pages.
+
+No account ID, device ID, price, location or exact time is stored with a product.
+The brand comes only from what the shopper typed or what an admin locked.

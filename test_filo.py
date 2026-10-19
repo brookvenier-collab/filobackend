@@ -170,10 +170,10 @@ def test_market_price_check():
                  "Uma", "Vera", "Wren", "Xena", "Yara", "Zoe", "Ada", "Bo", "Cy", "Di"]
         return [{"title": f"{title} {comp} {names[i]}", "source": f"Shop{i % shops}",
                  "extracted_price": price_fn(i), "link": f"l{i}"} for i in range(n)]
-    tees = listings(30, 8, lambda i: 15 + i)          # $15 to $44, median ~$30
+    tees = listings(30, 12, lambda i: 15 + i)         # $15 to $44, median ~$30
     fetch = lambda q, num=100: tees
     b = market.benchmark("t-shirt", poly, "women", fetch=fetch)
-    check("enough listings -> a benchmark", (b["enough"], b["listings"], b["shops"]), (True, 30, 8))
+    check("enough listings -> a benchmark", (b["enough"], b["listings"], b["shops"]), (True, 30, 12))
     check("median is the middle listing", b["median"], 30)
     lvl = lambda p: market.check(p, "t-shirt", poly, "women", fetch=fetch)["level"]
     check("$12 is good value", lvl(12), market.GOOD)
@@ -183,23 +183,31 @@ def test_market_price_check():
     over = market.check(180, "t-shirt", poly, "women", fetch=fetch)
     check("overpaying line shows the multiple and the range",
           over["line"].startswith("$180 is about 6.0 times the usual price for 100% polyester t-shirts"), True)
-    check("says what it's based on", over["based_on"].startswith("Based on 30 similar listings at 8 shops"), True)
+    check("says what it's based on", over["based_on"].startswith("Based on 30 similar listings at 12 shops"), True)
+    check("$55 (under 2x the median) is not called overpaying", lvl(55), market.FAIR)
+    check("the listing sample never reaches the app", "_sample" in over["benchmark"], False)
+    packs = lambda q, num=100: [dict(x, title=x["title"] + " 3 Pack") for x in tees]
+    check("multipacks don't count", market.check(180, "t-shirt", poly, fetch=packs)["level"], None)
+    kids = lambda q, num=100: [dict(x, title="Girls " + x["title"]) for x in tees]
+    check("kids' sizes don't count", market.check(180, "t-shirt", poly, fetch=kids)["level"], None)
+    deep = lambda q, num=100: listings(30, 30, lambda i: 15 + i)[:6] + [dict(x, source="BigShop") for x in listings(30, 30, lambda i: 5)]
+    check("one shop counts at most 3 times", market.benchmark("t-shirt", poly, fetch=deep)["listings"], 9)
     check("never names a brand or shop", "Shop" in over["line"] + over["based_on"], False)
     for bad in ("rip", "scam", "fake", "lying"):
         check(f"no '{bad}' in the line", bad in over["line"].lower(), False)
 
     few = lambda q, num=100: tees[:12]
     check("under 20 listings -> no verdict", market.check(180, "t-shirt", poly, fetch=few)["level"], None)
-    one_shop = lambda q, num=100: listings(30, 2, lambda i: 20)
+    one_shop = lambda q, num=100: listings(30, 4, lambda i: 20)
     check("under 5 shops -> no verdict", market.check(180, "t-shirt", poly, fetch=one_shop)["level"], None)
 
-    cotton = lambda q, num=100: listings(30, 8, lambda i: 60, comp="100% Cotton")
+    cotton = lambda q, num=100: listings(30, 12, lambda i: 60, comp="100% Cotton")
     check("cotton listings don't price a polyester tee",
           market.check(180, "t-shirt", poly, fetch=cotton)["level"], None)
     bare = lambda q, num=100: [dict(x, title="Women's Crew T-Shirt") for x in tees]
     check("listings that don't state fibre don't count",
           market.check(180, "t-shirt", poly, fetch=bare)["level"], None)
-    dresses = lambda q, num=100: listings(30, 8, lambda i: 20, title="Midi Dress")
+    dresses = lambda q, num=100: listings(30, 12, lambda i: 20, title="Midi Dress")
     check("other garments don't count", market.check(180, "t-shirt", poly, fetch=dresses)["level"], None)
     resale = lambda q, num=100: [dict(x, source="The RealReal") for x in tees]
     check("pre-owned doesn't count", market.check(180, "t-shirt", poly, fetch=resale)["level"], None)
@@ -212,6 +220,81 @@ def test_market_price_check():
     ca = market.check(180, "t-shirt", poly)
     check("Canadian scan asks for Canadian listings", market.check(180, "t-shirt", poly, country="CA")["based_on"].endswith("in Canada, " + ca["benchmark"]["as_of"] + ". Prices in CAD."), True)
     check("country goes to the search", "ca" in seen_gl and "us" in seen_gl, True)
+
+
+def test_products(store_factory=None, label="memory"):
+    """v29. The product database: barcode in, verdict back, built by scans."""
+    import products, main
+    print(f"\n=== product database ({label}) ===")
+    P = products
+    S = store_factory() if store_factory else P.MemoryStore()
+    check("UPC-A with a good check digit", P.normalize_gtin("036000291452"), "00036000291452")
+    check("EAN-13 with a good check digit", P.normalize_gtin("4006381333931"), "04006381333931")
+    check("bad check digit is refused", P.normalize_gtin("036000291453"), None)
+    check("junk is refused", P.normalize_gtin("hello"), None)
+    check("fabric is stored the same way however it's written",
+          (P.canonical_composition("Polyester 40% Cotton 60%"), P.canonical_composition("60% cotton, 40% polyester")),
+          ("60% cotton, 40% polyester", "60% cotton, 40% polyester"))
+    check("fabric that doesn't add up is refused", P.canonical_composition("60% cotton 20% polyester"), None)
+    check("RN, CA number and country read off a tag",
+          P.from_tag("RN 54867 CA 12345 Made in Portugal 100% cotton"),
+          {"rn": "54867", "ca_number": "12345", "made_in": "Portugal"})
+
+    g = "036000291452"
+    a = P.contribute(g, {"brand": "Aritzia", "composition": "100% Cotton", "category": "T-Shirt"},
+                     "session-aaaaaaaa", s=S)
+    check("first scan is accepted", sorted(a["accepted"]), ["brand", "category", "composition"])
+    one = P.lookup(g, s=S)
+    check("one scan: unconfirmed", one["status"], "unconfirmed")
+    P.contribute(g, {"brand": "Aritzia", "composition": "100% Cotton"}, "session-aaaaaaaa", s=S)
+    check("same phone twice the same day counts once",
+          P.lookup(g, s=S)["fields"]["brand"]["votes"], 1)
+    P.contribute(g, {"brand": "Aritzia", "composition": "100% cotton"}, "session-bbbbbbbb", s=S)
+    two = P.lookup(g, s=S)
+    check("two independent scans: confirmed", two["status"], "confirmed")
+    check("scans are counted", two["scans"], 3)
+    P.contribute(g, {"brand": "Zara"}, "session-cccccccc", s=S)
+    check("one dissent doesn't flip the brand", P.lookup(g, s=S)["fields"]["brand"]["value"], "Aritzia")
+    P.contribute(g, {"brand": "Zara"}, "session-dddddddd", s=S)
+    check("a real split drops back to unconfirmed",
+          P.lookup(g, s=S)["fields"]["brand"]["status"], "unconfirmed")
+    S.set_locked(P.normalize_gtin(g), "brand", "Aritzia")
+    P.contribute(g, {"brand": "Zara"}, "session-eeeeeeee", s=S)
+    check("locked fields can't be voted over", P.lookup(g, s=S)["fields"]["brand"],
+          {"value": "Aritzia", "status": "locked", "votes": 1000000, "of": 1000000})
+    S.set_registrant("RN", "54867", "Example Imports Inc.", "importer")
+    P.contribute(g, {"rn": "54867"}, "session-ffffffff", s=S)
+    check("RN shows who it's registered to",
+          P.lookup(g, s=S)["fields"]["rn"]["registered_to"], "Example Imports Inc.")
+    check("bad barcode can't be contributed", P.contribute("123", {"brand": "X"}, "session-x1234567", s=S)["ok"], False)
+    check("no session, no vote", P.contribute("4006381333931", {"brand": "X"}, None, s=S)["accepted"], [])
+    check("brand summary counts products", P.brand_summary(s=S)[0]["brand"], "Aritzia")
+    check("nothing about a person is stored",
+          any(isinstance(k, tuple) and "session" in str(k) for k in getattr(S, "votes", [])), False)
+    return S
+
+
+def test_products_api():
+    """v29. /analyze with a barcode: learns from the tag, answers from the database."""
+    import products, main
+    print("\n=== product database through /analyze ===")
+    products._memory = products.MemoryStore()
+    g = "4006381333931"
+    A = lambda **kw: main.analyze(main.AnalyzeRequest(item=main.Item(mode="score", **kw)))
+    new = A(gtin=g)
+    check("unknown barcode, no tag: asks for the tag", (new["score"], new["product"]["status"]), (None, "new"))
+    A(gtin=g, composition="95% Cotton, 5% Elastane", brand="Aritzia", category="t-shirt",
+      tag_text="RN 12345 Made in Vietnam 95% Cotton 5% Elastane", session_id="sess-11111111")
+    back = A(gtin=g)
+    check("next shopper gets the verdict from the barcode alone", back["score"],
+          fabric.quality_score("95% Cotton, 5% Elastane")[0])
+    check("and is told it's from one scan, unconfirmed", back["product"]["status"], "unconfirmed")
+    check("brand came along", back["product"]["fields"]["brand"]["value"], "Aritzia")
+    check("country made came off the tag", back["product"]["fields"]["made_in"]["value"], "Vietnam")
+    A(gtin=g, composition="95% cotton 5% elastane", session_id="sess-22222222")
+    check("second tag scan confirms it", A(gtin=g)["product"]["status"], "confirmed")
+    check("a lookup-only scan doesn't vote for itself", A(gtin=g)["product"]["scans"], 2)
+    check("bad barcode is said plainly", A(gtin="123", composition="100% Cotton")["product"]["status"], "invalid")
 
 
 def test_lifespan_is_sourced():
@@ -1211,6 +1294,14 @@ if __name__ == "__main__":
     test_lifespan_is_sourced()
     test_score_parts()
     test_market_price_check()
+    test_products()
+    test_products_api()
+    if __import__("os").environ.get("FILO_TEST_DATABASE_URL"):
+        import events, products as _p
+        events.DATABASE_URL = __import__("os").environ["FILO_TEST_DATABASE_URL"]
+        _p.init_schema()
+        test_products(lambda: _p.PostgresStore(), "postgres")
+        events.DATABASE_URL = ""
     test_season_calendar()
     test_look_never_overrides_quality()
     test_mall_brands_cannot_flood()
