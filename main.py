@@ -290,6 +290,7 @@ def analyze(req: AnalyzeRequest):
     # garment once picked), never from the shopper's price.
     result["breakdown"] = (result.get("breakdown") or []) + \
         value.breakdown_rows(value_item, value_detail, score, fair)
+    result["breakdown_sections"] = BREAKDOWN_SECTIONS
 
     if (req.item.mode or "full") == "score" or score is None:
         # The fast path: verdict only. The app asks again with mode="full" (or
@@ -527,9 +528,42 @@ def _public_base(request: Request) -> str:
     return f"https://{host}" if host else ""
 
 
+# v30.6. What the app shows that the server decides, so changing it never
+# needs an App Store update. The 1.2 app reads these; older apps ignore them.
+# Add a category here and it appears as a chip the next time the app opens
+# (the backend still needs to know the type in catalog.GARMENT_GROUPS to search
+# it well, and pricebank.json to price it).
+APP_CATEGORIES = [
+    "T-shirt", "Long sleeve", "Tank", "Top", "Shirt", "Sweater", "Cardigan",
+    "Hoodie", "Knitwear", "Dress", "Skirt", "Jeans", "Trousers", "Sweatpants",
+    "Shorts", "Leggings", "Jacket", "Blazer", "Coat", "Activewear", "Bag",
+]
+# Names must be in vision.COLOR (lowercased) or EXTRA_LOOK_PICKS.
+APP_COLORS = [
+    {"name": "Black", "hex": "1A1A1A"}, {"name": "White", "hex": "FFFFFF"},
+    {"name": "Cream", "hex": "F2E8D1"}, {"name": "Grey", "hex": "999999"},
+    {"name": "Navy", "hex": "1F2B54"}, {"name": "Blue", "hex": "5C80B8"},
+    {"name": "Brown", "hex": "664229"}, {"name": "Tan", "hex": "C7A378"},
+    {"name": "Green", "hex": "54704F"}, {"name": "Red", "hex": "BF2929"},
+    {"name": "Burgundy", "hex": "6E1F24"}, {"name": "Pink", "hex": "EDB8BF"},
+    {"name": "Leather", "hex": "3D261C"},
+]
+# The result page's sections, in order. A row's "side" picks its section.
+BREAKDOWN_SECTIONS = [
+    {"side": "bad", "label": "HOLDING IT BACK"},
+    {"side": "price", "label": "WHAT IT SHOULD COST"},
+    {"side": "good", "label": "WHAT IS GOOD"},
+    {"side": "note", "label": "NOT CHECKED"},
+]
+
+
 @app.get("/config")
 def config(request: Request):
-    return home_config(base_url=_public_base(request))
+    out = home_config(base_url=_public_base(request))
+    out["categories"] = APP_CATEGORIES
+    out["colors"] = APP_COLORS
+    out["breakdown_sections"] = BREAKDOWN_SECTIONS
+    return out
 
 
 # ----------------------------------------------------------------- home card admin

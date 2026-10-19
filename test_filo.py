@@ -1507,6 +1507,19 @@ def test_v30_5_more_types_and_true_colour():
     check("a black one is", catalog.title_names_other_colour({"name": "Black Cotton Tee"}, "black"), False)
     check("an untitled colour defers to the photo", catalog.title_names_other_colour({"name": "Organic Tee"}, "black"), False)
     check("deep navy pixels read navy", colour.name_pixel(20, 25, 60), "navy")
+    import main, vision
+    from fastapi.testclient import TestClient
+    cfg = TestClient(main.app).get("/config").json()
+    check("/config sends the category chips", "Sweatpants" in cfg["categories"], True)
+    check("every colour chip is one the search knows",
+          [c["name"] for c in cfg["colors"]
+           if c["name"].lower() not in vision.COLOR and c["name"].lower() not in main.EXTRA_LOOK_PICKS], [])
+    check("every category chip resolves to a type the search knows",
+          [c for c in cfg["categories"] if c not in ("Knitwear", "Activewear")
+           and catalog.garment_group(c) is None and value.group_for(c) is None], [])
+    r = TestClient(main.app).post("/analyze", json={"item": {"composition": "100% wool", "mode": "score"}}).json()
+    check("each scan says which sections to show", [x["side"] for x in r["breakdown_sections"]],
+          ["bad", "price", "good", "note"])
     check("black pixels read black", colour.name_pixel(15, 15, 18), "black")
 
 
