@@ -1440,6 +1440,7 @@ def test_v30_fair_price():
     r2 = value.breakdown_rows(it2, d, d["score"], v2)[0]
     check("with a price the row is the verdict", (r2["title"], r2["level"]), (v2["label"], "good"))
     check("...in one short line", r2["line"].startswith("$90") and len(r2["line"]) < 70, True)
+    check("...with the fair range one tap down", "A fair price for this make is about" in r2["detail"], True)
     it3 = {"composition": "64% cotton 36% polyester", "price": 40}
     d3 = fabric.quality_detail(it3["composition"])
     r3 = value.breakdown_rows(it3, d3, d3["score"], value.assess(it3, d3, d3["score"]))[0]
@@ -1533,6 +1534,48 @@ def test_v30_5_more_types_and_true_colour():
     check("black pixels read black", colour.name_pixel(15, 15, 18), "black")
 
 
+def test_v30_8_the_store():
+    """A mall-store price is judged against the store as well as the make."""
+    import market, value, catalog
+    print("\n=== v30.8: what this store usually charges ===")
+    styles = ["Ribbed", "Mock Neck", "Fitted", "Boxy", "Scoop", "Wrap", "Henley",
+              "Square Neck", "Cropped", "Draped"]
+    listings = [{"title": f"Oak + Fort {st} Long Sleeve Top", "source": "Oak + Fort",
+                 "extracted_price": p, "product_link": f"https://x/{i}"}
+                for i, (st, p) in enumerate(zip(styles, [48, 52, 55, 58, 60, 65, 70, 78, 85, 98]))]
+    listings.append({"title": "Random Long Sleeve Top", "source": "Other Shop",
+                     "extracted_price": 12, "product_link": "https://y"})
+    market._store_cache.clear()
+    b = market.store_benchmark("Oak + Fort", "long-sleeve", "women",
+                               fetch=lambda q, num=60: listings, country="CA")
+    check("the store's own listings only", b["listings"], 10)
+    check("...and its usual range", (b["p25"] >= 50, b["p75"] <= 85), (True, True))
+    d = fabric.quality_detail("95% polyester 5% elastane")
+    it = {"composition": "95% polyester 5% elastane", "category": "women's long sleeve",
+          "price": 70, "country": "CA", "brand": "Oak + Fort"}
+    v = value.assess(it, d, d["score"], store_check=b)
+    check("v30.9: the store never softens the verdict", v["level"] in (value.HIGH_FOR_WHAT, value.OVERPRICED), True)
+    check("...it's context, without naming the store", ("store_line" in v, "Oak" in v.get("store_line", "")), (True, False))
+    v2 = value.assess(dict(it, price=100), d, d["score"], store_check=b)
+    check("$100 polyester long sleeve: overpriced", v2["level"], value.OVERPRICED)
+    check("...with the markup as a fact", (v2["markup_x"] >= 8, "times what it likely costs to make" in v2["markup_line"]), (True, True))
+    v3 = value.assess(dict(it, price=20), d, d["score"], store_check=b)
+    check("a fair price is still fair", v3["level"] in (value.FAIR_FOR_WHAT, value.WORTH_IT), True)
+    check("no brand, no store check", market.store_benchmark("", "long-sleeve"), None)
+    row = value.breakdown_rows(dict(it, price=100), d, d["score"], v2)[0]
+    check("the row is just the markup", (row["title"], row["line"]),
+          (value.LABELS[value.OVERPRICED], f"$100 is about {v2['markup_x']} times what it likely costs to make."))
+    check("...the store's prices are one tap down", "This store usually charges" in row["detail"], True)
+    # Better made options: cheaper than an overpriced piece is the point.
+    item = {"title": "Organic Cotton Long Sleeve Tee 100% cotton", "source": "Kotn",
+            "extracted_price": 45, "product_link": "https://k"}
+    check("a $45 option for a $100 top passes once the floor follows the fair price",
+          catalog.evaluate(item, price=100, scanned_score=4.6, category="long sleeve", floor_base=30) is not None, True)
+    check("...and was dropped before", catalog.evaluate(item, price=100, scanned_score=4.6, category="long sleeve"), None)
+    check("a colour that couldn't be found is said first",
+          catalog.colour_note([{"colour_match": False, "fit": "pricier"}], "black").startswith("We could not find a black"), True)
+
+
 if __name__ == "__main__":
     test_parser()
     test_scoring()
@@ -1572,6 +1615,7 @@ if __name__ == "__main__":
     test_v30_fair_price()
     test_v30_3_every_fibre_on_the_tag()
     test_v30_5_more_types_and_true_colour()
+    test_v30_8_the_store()
     print()
     if FAILS:
         print(f"{len(FAILS)} FAILURES")

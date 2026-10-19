@@ -237,3 +237,64 @@ def check(price, group, matched, department=None, fetch=None, country=None):
     public = {k: v for k, v in bench.items() if not k.startswith("_")}
     return {"level": level, "label": LABELS[level], "line": line,
             "based_on": based_on, "benchmark": public, "disclaimer": DISCLAIMER}
+
+
+# ------------------------------------------------------------- v30.8 the store
+# "Nothing at this store is under $50." A fair price built from the make is the
+# honest number, but a shopper standing in a store also needs to know whether
+# THIS price is normal THERE. So: what does this brand list this kind of piece
+# for, from its own current listings? One search per brand and garment type,
+# cached for two weeks. It never moves the score or the fair price; it only
+# changes how the verdict is worded (value.py).
+import time as _time
+
+STORE_MIN_LISTINGS = 6
+STORE_TTL_S = 14 * 24 * 3600
+_store_cache = {}
+
+
+def _norm_brand(name):
+    return re.sub(r"[^a-z0-9]+", "", (name or "").lower())
+
+
+def store_benchmark(brand, group, department=None, fetch=None, country=None):
+    """{'p25','median','p75','listings','currency'} for this brand's own pieces of
+    this type, or None. Listings must be sold by the brand or name it in the title."""
+    b = _norm_brand(brand)
+    word = _GROUP_WORD.get(group) or group
+    if len(b) < 3 or not word:
+        return None
+    gl, currency, place = MARKETS.get((country or "US").upper(), MARKETS["US"])
+    key = (b, group, department or "", gl)
+    hit = _store_cache.get(key)
+    if hit and hit[0] > _time.time():
+        return hit[1]
+    if fetch is None:
+        fetch = lambda q, num=60: catalog._fetch(q, num=num, gl=gl)
+    dept = {"women": "women's", "men": "men's"}.get(department or "", "")
+    q = f"{brand} {dept} {word}".replace("  ", " ").strip()
+    prices, seen = [], set()
+    for item in fetch(q, num=60) or []:
+        title = item.get("title") or ""
+        source = item.get("source") or ""
+        if b not in _norm_brand(source) and b not in _norm_brand(title):
+            continue
+        if brands.is_resale(source) or not catalog.same_garment(title, group):
+            continue
+        if catalog._BULK.search(title.lower()) or _KIDS.search(title.lower()):
+            continue
+        lk = catalog.listing_key(item)
+        if lk in seen:
+            continue
+        seen.add(lk)
+        p = _regular_price(item)
+        if p:
+            prices.append(p)
+    out = None
+    if len(prices) >= STORE_MIN_LISTINGS:
+        prices.sort()
+        out = {"p25": round(_percentile(prices, 0.25)), "median": round(statistics.median(prices)),
+               "p75": round(_percentile(prices, 0.75)), "listings": len(prices),
+               "currency": currency, "as_of": date.today().strftime("%b %Y")}
+    _store_cache[key] = (_time.time() + STORE_TTL_S, out)
+    return out

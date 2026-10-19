@@ -48,6 +48,7 @@ GET_WHAT_YOU_PAY = "you_get_what_you_pay_for"
 OVERPRICED = "overpriced"
 TOO_CHEAP = "hard_to_make_at_this_price"
 CHECK_GRADE = "low_price_check_the_grade"
+STORE_PRICE = "usual_price_for_this_store"
 
 LABELS = {
     STEAL: "A steal",
@@ -59,14 +60,16 @@ LABELS = {
     OVERPRICED: "Overpriced",
     TOO_CHEAP: "Hard to make at this price",
     CHECK_GRADE: "Low price, check the grade",
+    STORE_PRICE: "Usual price for this store",
 }
 # Colour for the app: good / ok / poor. Same three as the breakdown dots.
 COLOURS = {STEAL: "good", WORTH_IT: "good", FAIR_FOR_WHAT: "ok",
            HIGH_PRICE: "ok", HIGH_FOR_WHAT: "ok", GET_WHAT_YOU_PAY: "ok",
-           OVERPRICED: "poor", TOO_CHEAP: "poor", CHECK_GRADE: "ok"}
+           OVERPRICED: "poor", TOO_CHEAP: "poor", CHECK_GRADE: "ok",
+           STORE_PRICE: "ok"}
 # Order used to rank better made options: best value first.
 RANK = {STEAL: 0, WORTH_IT: 1, FAIR_FOR_WHAT: 2, GET_WHAT_YOU_PAY: 3,
-        HIGH_FOR_WHAT: 4, CHECK_GRADE: 4, HIGH_PRICE: 5, OVERPRICED: 6, TOO_CHEAP: 7,
+        HIGH_FOR_WHAT: 4, CHECK_GRADE: 4, STORE_PRICE: 4, HIGH_PRICE: 5, OVERPRICED: 6, TOO_CHEAP: 7,
         None: 8}
 
 # ------------------------------------------------------------------ groups
@@ -432,19 +435,19 @@ def _what(matched, group):
     return f"a {lead} {noun}"
 
 
-def assess(item, detail, score, market_check=None):
+def assess(item, detail, score, market_check=None, store_check=None):
     """The fair price and, when there is a price, the value verdict.
 
     item: composition, category, name, price, country (CA/US), tag_text.
     Returns None when the piece can't be priced (no fibre, or a group not in
     the bank). Never raises."""
     try:
-        return _assess(item, detail, score, market_check)
+        return _assess(item, detail, score, market_check, store_check)
     except Exception:                       # noqa: BLE001  never block a verdict
         return None
 
 
-def _assess(item, detail, score, market_check):
+def _assess(item, detail, score, market_check, store_check=None):
     if not detail:
         return None
     raw = item.get("composition") or ""
@@ -569,6 +572,8 @@ def _assess(item, detail, score, market_check):
             level = GET_WHAT_YOU_PAY
             line = f"The price is fair, but it won't last as long as better fabric. {range_line}"
     else:
+        # v30.9: what the store usually charges is context, never an excuse.
+        # The verdict is the price against a fair markup on the make.
         times = price / exact_hi
         strong = price > way_above or mlevel == "overpaying"
         if q == "good":
@@ -591,6 +596,19 @@ def _assess(item, detail, score, market_check):
             line = f"Priced like quality, made like it isn't. {range_line}"
 
     out.update(level=level, label=LABELS[level], colour=COLOURS[level], line=line)
+    # v30.9: the markup, said as a fact. Measured against the HIGHEST cost the
+    # piece could plausibly have, landed in the shopper's country, so the
+    # number is never overstated. Most clothing sells for 4 to 8 times its
+    # factory price (CBI); that is the yardstick the line gives.
+    cost_hi = _to_market(b["factory_usd"][2] * _landed_x(country, market), market)
+    out["markup_x"] = round(price / cost_hi) if cost_hi > 0 else None
+    if level in (HIGH_PRICE, HIGH_FOR_WHAT, OVERPRICED) and out["markup_x"] and out["markup_x"] >= 8:
+        out["markup_line"] = (f"That's about {out['markup_x']} times what it likely costs to make. "
+                              f"Most clothing sells for 4 to 8 times.")
+    if store_check:
+        out["store"] = {k: store_check[k] for k in ("p25", "median", "p75", "listings", "currency")}
+        out["store_line"] = (f"This store usually charges {_money(store_check['p25'])} to "
+                             f"{_money(store_check['p75'])} for these.")
     return out
 
 
@@ -645,15 +663,18 @@ def breakdown_rows(item, detail, score, fair=None):
 
 
 _SHORT = {
-    STEAL: "{p} is below the fair price of {r}.",
-    WORTH_IT: "{p} fits the fair price of {r}.",
-    FAIR_FOR_WHAT: "{p} is about right. A fair price is {r}.",
+    # v30.10: one sentence, no ranges. The working is in the drop-down.
+    STEAL: "{p} is less than a piece made like this usually costs.",
+    WORTH_IT: "{p} is a fair price for how it's made.",
+    FAIR_FOR_WHAT: "{p} is about right for what it is.",
     GET_WHAT_YOU_PAY: "{p} is fair, but it won't last as long as better fabric.",
-    HIGH_FOR_WHAT: "{p} is above the fair price of {r}.",
-    HIGH_PRICE: "{p} is above the fair price of {r}. Some of it is the name.",
-    OVERPRICED: "{p} is well above the fair price of {r}.",
+    HIGH_FOR_WHAT: "{p} is more than this make is worth.",
+    HIGH_PRICE: "Made well, but {p} is more than the make is worth.",
+    OVERPRICED: "{p} is far more than this make is worth.",
     CHECK_GRADE: "{p} is low for this fabric. It may be a lower grade.",
     TOO_CHEAP: "{p} is less than the fabric alone should cost.",
+    STORE_PRICE: "{p} is normal for this store.",
+    "markup": "{p} is about {x} times what it likely costs to make.",
 }
 _ROW_LEVEL = {"good": "good", "ok": "ok", "poor": "poor"}
 
@@ -670,8 +691,16 @@ def _breakdown_rows(item, detail, score, fair):
     price = item.get("price")
     if fair and fair.get("level"):
         rng = f"{_money(fair['fair_low'])} to {_money(fair['fair_high'])}"
-        line = _SHORT[fair["level"]].format(p=_money(price), r=rng)
-        more = [fair["line"], fair.get("could_be_line"), PRICE_ROW_DETAIL]
+        key = "markup" if fair.get("markup_line") else fair["level"]
+        line = _SHORT[key].format(p=_money(price), r=rng, x=fair.get("markup_x"))
+        if fair["level"] in (WORTH_IT, FAIR_FOR_WHAT) and price > fair["fair_high"]:
+            # Above the usual range but within what the unknowns allow.
+            line = f"{_money(price)} is at the top of what it could fairly cost."
+        # The fair range, the store's usual prices and the reasoning all sit
+        # one tap down, in the drop-down.
+        more = [f"A fair price for this make is about {rng}.", fair.get("store_line"),
+                fair.get("markup_line"), "Most clothing sells for 4 to 8 times what it costs a factory to make (CBI, Netherlands government).",
+                fair.get("could_be_line"), PRICE_ROW_DETAIL]
         return [{"side": "price", "level": _ROW_LEVEL.get(fair.get("colour"), "unknown"),
                  "icon": "tag", "title": fair["label"], "line": line,
                  "detail": " ".join(x for x in more if x)}]

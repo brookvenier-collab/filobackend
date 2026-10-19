@@ -280,7 +280,7 @@
   "verdict_rules": {
     "_note": "Where a price sits against the fair range. above_x: how far over the top of the range before Filo says the price is high. way_above_x: before it says 'about N times'.",
     "above_x": 1.25,
-    "way_above_x": 2.5,
+    "way_above_x": 2.0,
     "quality_good": 6.0,
     "quality_low": 4.5,
     "floor_premium_fibres": ["cashmere", "silk", "leather", "merino", "wool"],

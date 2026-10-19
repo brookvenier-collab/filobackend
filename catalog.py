@@ -434,7 +434,7 @@ def look_match(item, look):
 
 def evaluate(item, price=None, scanned_score=None, category=None,
              material=None, assumed_price=None, department=None,
-             scanned_durability=None, relax=0, scanned_wears=None):
+             scanned_durability=None, relax=0, scanned_wears=None, floor_base=None):
     """Score one search result. Returns a dict to show, or None to drop it.
 
     Pure function, no network — this is the part worth testing.
@@ -494,7 +494,7 @@ def evaluate(item, price=None, scanned_score=None, category=None,
     elif price is not None and p is not None:
         # Pre-owned is cheap because it's pre-owned, not because it's suspect,
         # so the floor doesn't apply to it. The ceiling still does.
-        floor = 0 if brands.is_resale(source) else price * lo
+        floor = 0 if brands.is_resale(source) else (floor_base or price) * lo
         if p < floor or p > price * hi:
             return None
     # 1b. No price given: keep to a sensible range for this kind of garment.
@@ -584,7 +584,7 @@ def evaluate(item, price=None, scanned_score=None, category=None,
 def search_alternatives(category=None, name=None, price=None,
                         scanned_score=None, limit=4, look=None, material=None,
                         department=None, scanned_durability=None, taste=None,
-                        colour=None, scanned_wears=None, assumed_price=None):
+                        colour=None, scanned_wears=None, assumed_price=None, floor_base=None):
     """Search several angles, keep only what we can vouch for, best first.
 
     assumed_price (v30): with no price entered, the fair price for what was
@@ -607,7 +607,15 @@ def search_alternatives(category=None, name=None, price=None,
     # the brand searches go to makers they could actually buy from.
     typical = typical_price(subject, material)
     budget_ratio = (price / typical) if (price and typical) else None
-    queries = brands.build_queries(subject, look=look, material=material,
+    # v30.8: "women's long sleeve" is how the chip reads, not how shops title
+    # things. Search it the way they list it.
+    search_subject = subject
+    grp = garment_group(subject)
+    if grp == "long-sleeve" and not re.search(r"\b(top|tee|t-shirt|shirt)\b", subject.lower()):
+        search_subject = f"{subject} top"
+    elif grp == "tank" and "top" not in subject.lower():
+        search_subject = f"{subject} top"
+    queries = brands.build_queries(search_subject, look=look, material=material,
                                    budget_ratio=budget_ratio, colour=colour)
     # v23: one extra search for the brand they keep coming back to. Its pieces
     # are judged like any other; most will not pass, and that is fine.
@@ -659,7 +667,7 @@ def search_alternatives(category=None, name=None, price=None,
                               category=subject, material=material,
                               assumed_price=assumed, department=department,
                               scanned_durability=scanned_durability, relax=level,
-                              scanned_wears=scanned_wears)
+                              scanned_wears=scanned_wears, floor_base=floor_base)
             if result:
                 result["match"] = look_match(item, look)
                 result["colour_match"] = colour_match(item, colour)

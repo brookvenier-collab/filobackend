@@ -321,6 +321,13 @@ def analyze(req: AnalyzeRequest):
         if (result.get("price_check") or {}).get("pending"):
             price_future = pool.submit(market.check, item["price"], group, matched,
                                        department, None, req.item.country)
+        # v30.8: what this store usually charges for this kind of piece, so a
+        # mall-store price is judged against the store as well as the make.
+        store_future = None
+        store_group = value.group_for(item.get("category"), item.get("name"))
+        if item.get("price") is not None and item.get("brand") and store_group:
+            store_future = pool.submit(market.store_benchmark, item["brand"], store_group,
+                                       department, None, req.item.country)
 
         look = []
         if req.item.image:
@@ -370,6 +377,11 @@ def analyze(req: AnalyzeRequest):
             taste=req.item.taste,
             colour=chosen if chosen in vision.COLOR else None,
             assumed_price=assumed_override,
+            # v30.8: a $100 polyester top's better made option at $45 is the
+            # point, not "suspiciously cheap". With a fair price known, the
+            # cheap-floor is measured from it when the shopper paid more.
+            floor_base=(min(item["price"], fair["fair_high"])
+                        if item.get("price") and fair and fair.get("fair_high") else None),
         )
 
         try:
@@ -391,8 +403,19 @@ def analyze(req: AnalyzeRequest):
                 (pc.get("label") + ".") if pc.get("label") else None,
                 pc.get("line"), pc.get("based_on")) if x)
             # v30: the fair price leads; what shops charge follows it.
-            fair = value.assess(value_item, value_detail, score, market_check=pc) or fair
+            store = None
+            if store_future is not None:
+                try:
+                    store = store_future.result(timeout=catalog.SEARCH_BUDGET + 2)
+                except Exception:           # noqa: BLE001
+                    store = None
+            fair = value.assess(value_item, value_detail, score, market_check=pc,
+                                store_check=store) or fair
             _apply_fair(result, fair, pc)
+            # The verdict row on the result page follows the newest read.
+            result["breakdown"] = [r for r in (result.get("breakdown") or [])
+                                   if r.get("side") != "price"] + \
+                value.breakdown_rows(value_item, value_detail, score, fair)
 
         try:
             # The style read is garnish. It gets 4 seconds past the search and
@@ -424,10 +447,10 @@ def analyze(req: AnalyzeRequest):
                            category=item.get("category"))
         result["alternatives"] = alternatives
         # v22: set only when every pick needed the price rules loosened.
+        # v30.8: a colour the shopper asked for and couldn't get is said first.
         result["alternatives_note"] = (
-            catalog.note_for(alternatives)
-            or catalog.colour_note(alternatives,
-                                   chosen if chosen in vision.COLOR else None))
+            catalog.colour_note(alternatives, chosen if chosen in vision.COLOR else None)
+            or catalog.note_for(alternatives))
     elif not catalog.SERPAPI_KEY:
         result["alternatives_note"] = (
             "Better-made options turn on once product search is connected."
