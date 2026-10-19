@@ -42,9 +42,10 @@ PROOFS = sorted(t for t, (a, _, _) in CONSTRUCTION.items() if a > 0)
 FAULTS = sorted(t for t, (a, _, _) in CONSTRUCTION.items() if a < 0)
 
 _PROMPT = (
-    "You are inspecting the INSIDE of a garment to judge how well it is sewn.\n\n"
-    "First decide: is this a clear, close photo of an inside seam or the inside "
-    "of a garment? If not, set is_seam to false and leave the lists empty.\n\n"
+    "You are inspecting the INSIDE of a garment, or a leather bag up close, to judge how well it is made.\n\n"
+    "First decide: is this a clear, close photo of an inside seam, the inside "
+    "of a garment, or the edge, stitching, lining or hardware of a leather bag? "
+    "If not, set is_seam to false and leave the lists empty.\n\n"
     "Then list what you can SEE, using only these words.\n"
     f"Signs of careful making: {', '.join(PROOFS)}\n"
     f"Faults: {', '.join(FAULTS)}\n\n"
@@ -57,7 +58,14 @@ _PROMPT = (
     "seam; loose_threads = untrimmed or unravelling threads; glued_seams = "
     "edges bonded with adhesive, no stitches; hand_finished = visible hand "
     "stitching; pattern_matched = stripes or checks line up across the seam; "
-    "quality_hardware = metal zip or horn/corozo buttons visible.\n\n"
+    "quality_hardware = metal zip or horn/corozo buttons visible.\n"
+    "For leather bags and leather goods: turned_edges = the leather is folded "
+    "over at the edge and stitched, no cut edge visible; painted_edges = the cut "
+    "edge is smooth, sealed and glossy (painted or burnished); saddle_stitched = "
+    "stitches slant and look the same on both sides; leather_lining = the inside "
+    "is lined with leather, not fabric; raw_edges = the cut edge is left raw, "
+    "fuzzy or fibrous; plated_hardware = thin coated metal with the finish worn "
+    "through or flaking.\n\n"
     "Only list what is clearly visible. Do not guess. Give a confidence for each.\n"
     "Reply with ONLY JSON:\n"
     '{"is_seam": true, "found": [{"token": "french_seams", "confidence": "high"}]}'

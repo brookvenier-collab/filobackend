@@ -532,6 +532,9 @@ def evaluate(item, price=None, scanned_score=None, category=None,
         "preowned": brands.is_resale(source),
         "price": p,
         "score": score,
+        # v30: what the listing says it's made of, so it can get a fair price read.
+        "composition": ", ".join(f"{int(pct) if float(pct).is_integer() else pct}% {k}"
+                                 for k, pct, *_ in matched),
         "url": item.get("product_link") or item.get("link"),
         "image_url": item.get("thumbnail"),
         "known_maker": maker is not None,
@@ -547,8 +550,12 @@ def evaluate(item, price=None, scanned_score=None, category=None,
 def search_alternatives(category=None, name=None, price=None,
                         scanned_score=None, limit=4, look=None, material=None,
                         department=None, scanned_durability=None, taste=None,
-                        colour=None, scanned_wears=None):
+                        colour=None, scanned_wears=None, assumed_price=None):
     """Search several angles, keep only what we can vouch for, best first.
+
+    assumed_price (v30): with no price entered, the fair price for what was
+    scanned. It only ever widens the sensible range, never narrows it, so a
+    cheap fair price can't empty the list.
 
     The queries run CONCURRENTLY and under a total time budget. Sequentially
     they'd stack up behind each other and a scan could take the better part of a
@@ -599,6 +606,8 @@ def search_alternatives(category=None, name=None, price=None,
         pool.shutdown(wait=False)
 
     assumed = None if price else typical_price(subject, material)
+    if assumed and assumed_price and assumed_price > assumed:
+        assumed = assumed_price
 
     seen, kept = set(), []
     for item in raw:

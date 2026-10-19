@@ -129,3 +129,12 @@ All "linked to you", used for app functionality, not tracking.
 
 No account ID, device ID, price, location or exact time is stored with a product.
 The brand comes only from what the shopper typed or what an admin locked.
+
+## v30: fair price (19 Oct 2026)
+
+No new data is collected. The fair price is worked out from the scan itself and
+`pricebank.json`. "What Filo shoppers saw" (aggregates.price_cells) reads the
+price bands already in `scan_events`, counts distinct devices, and reports a
+kind of piece only once at least K_ANONYMITY_FLOOR devices are in it. Session
+hashes are used to count and never leave the function; the app only ever gets
+a median, a spread and a count.

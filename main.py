@@ -27,6 +27,7 @@ import fund
 import seams
 import homecard
 import breakdown
+import value
 
 app = FastAPI(title="Filo AI")
 
@@ -149,6 +150,42 @@ def root():
     return {"ok": True, "service": "Filo AI"}
 
 
+def _apply_fair(result, fair, market_check=None):
+    """Put the fair price on the verdict, and on the fields the 1.x app reads."""
+    result["fair_price"] = value.public(fair)
+    if not fair:
+        return
+    if fair.get("level"):
+        # The fair price leads. The shop comparison follows when it has one.
+        shops = None
+        if market_check and market_check.get("level"):
+            shops = market_check.get("line")
+        result["price_note"] = " ".join(x for x in (
+            fair["label"] + ".", fair["line"], shops) if x)
+    elif result.get("price_prompt"):
+        # No price yet: say what it should cost, then ask.
+        result["price_prompt"] = f"{fair['range_line']} {fabric.PRICE_PROMPT}"
+
+
+def _value_alternatives(alternatives, item, country):
+    """Fair price on each better made option; better value first within a fit."""
+    for i, alt in enumerate(alternatives):
+        comp = alt.get("composition") or ""
+        detail = fabric.quality_detail(comp, allow_bare=False) if comp else None
+        v = value.assess({"composition": comp, "category": item.get("category"),
+                          "name": alt.get("name"), "price": alt.get("price"),
+                          "country": country}, detail, alt.get("score")) if detail else None
+        alt["fair_price"] = value.compact(v)
+        alt["_order"] = i
+    fit_rank = {"better": 0, "pricier": 1, "as_good": 2}
+    alternatives.sort(key=lambda a: (fit_rank.get(a.get("fit"), 3),
+                                     value.RANK.get((a.get("fair_price") or {}).get("level"), 8)
+                                     if a.get("fit") == "better" else 0,
+                                     a["_order"]))
+    for a in alternatives:
+        a.pop("_order", None)
+
+
 @app.post("/analyze")
 def analyze(req: AnalyzeRequest):
     # v29: a barcode Filo has seen before fills in what the shopper didn't send.
@@ -211,6 +248,18 @@ def analyze(req: AnalyzeRequest):
 
     department = catalog.normalize_department(req.item.department, item.get("category"))
 
+    # v30. The fair price: what a piece made like this should cost, from what
+    # it's made of and how and where it's made (value.py, pricebank.json). On
+    # the fast path it has no shop comparison yet; the full path redoes it once
+    # the listings are in, so its wording can take them into account.
+    value_item = {"composition": item["composition"], "category": item.get("category"),
+                  "name": item.get("name"), "price": item.get("price"),
+                  "country": req.item.country, "tag_text": req.item.tag_text}
+    value_detail = fabric.quality_detail(item["composition"],
+                                         construction=item["construction"]) if score is not None else None
+    fair = value.assess(value_item, value_detail, score)
+    _apply_fair(result, fair)
+
     if (req.item.mode or "full") == "score" or score is None:
         # The fast path: verdict only. The app asks again with mode="full" (or
         # with a category) for the alternatives.
@@ -270,6 +319,11 @@ def analyze(req: AnalyzeRequest):
         # catalog builds its own multi-angle search (fiber, certification, and the
         # names of makers known for cloth) because one generic query only ever
         # returns whoever has the biggest product feed. See brands.py.
+        # v30: with no price, the options are kept near what this make should
+        # fairly cost instead of a flat typical price for the garment.
+        assumed_override = None
+        if item.get("price") is None and fair and fair.get("fair_high"):
+            assumed_override = fair["fair_high"]
         alt_future = pool.submit(
             catalog.search_alternatives,
             category=item.get("category"),
@@ -283,6 +337,7 @@ def analyze(req: AnalyzeRequest):
             department=department,
             taste=req.item.taste,
             colour=chosen if chosen in vision.COLOR else None,
+            assumed_price=assumed_override,
         )
 
         try:
@@ -303,6 +358,9 @@ def analyze(req: AnalyzeRequest):
             result["price_note"] = " ".join(x for x in (
                 (pc.get("label") + ".") if pc.get("label") else None,
                 pc.get("line"), pc.get("based_on")) if x)
+            # v30: the fair price leads; what shops charge follows it.
+            fair = value.assess(value_item, value_detail, score, market_check=pc) or fair
+            _apply_fair(result, fair, pc)
 
         try:
             # The style read is garnish. It gets 4 seconds past the search and
@@ -318,6 +376,9 @@ def analyze(req: AnalyzeRequest):
         result["style_read"] = read
 
     if alternatives:
+        # v30: each option gets its own fair price read, and among the options
+        # that passed the same rules, better value comes first.
+        _value_alternatives(alternatives, item, req.item.country)
         # LAST. The list is already found, filtered, scored and sorted — this
         # only rewrites where each link points. Nothing is added, dropped or
         # reordered here, which is what keeps "no paid rankings" literally true.
@@ -749,6 +810,43 @@ def price_sample(composition: str, category: str, department: Optional[str] = No
     group = catalog.garment_group(category)
     dept = catalog.normalize_department(department, category)
     return market.benchmark(group, matched, dept, country=country) or {}
+
+
+@app.get("/internal/shelf/fair-price")
+def shelf_fair_price(days: int = 180, x_filo_admin: Optional[str] = Header(default=None)):
+    """v30. Filo's fair price next to what shoppers actually saw, per kind of
+    piece, for cells over the privacy floor. Where the two keep disagreeing,
+    the bank needs a look. Admin only."""
+    _require_admin(x_filo_admin)
+    rows = []
+    for (group, fibre, q, mkt), cell in sorted(aggregates.price_cells(days=days).items()):
+        comp = f"100% {fibre}"
+        detail = fabric.quality_detail(comp)
+        v = value.assess({"composition": comp, "category": group, "country": mkt},
+                         detail, detail["score"] if detail else None)
+        rows.append({"group": group, "fibre": fibre, "quality": q, "market": mkt,
+                     "shoppers": cell,
+                     "fair_low": (v or {}).get("fair_low"), "fair_high": (v or {}).get("fair_high"),
+                     "could_be_low": (v or {}).get("could_be_low"),
+                     "could_be_high": (v or {}).get("could_be_high")})
+    return {"floor": aggregates.K_ANONYMITY_FLOOR, "rows": rows}
+
+
+@app.get("/internal/fair-price")
+def fair_price_sample(composition: str, category: str, price: Optional[float] = None,
+                      country: Optional[str] = None, tag_text: Optional[str] = None,
+                      x_filo_admin: Optional[str] = Header(default=None)):
+    """v30. The fair price and every step behind it, for checking by hand."""
+    _require_admin(x_filo_admin)
+    detail = fabric.quality_detail(composition)
+    v = value.assess({"composition": composition, "category": category, "price": price,
+                      "country": country, "tag_text": tag_text},
+                     detail, detail["score"] if detail else None)
+    if not v:
+        return {}
+    out = value.public(v)
+    out["working"] = v["_cost"]
+    return out
 
 
 class LockRequest(BaseModel):

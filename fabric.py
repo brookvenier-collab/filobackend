@@ -455,6 +455,18 @@ CONSTRUCTION = {
                          "Pattern matched at the seams — slow, careful cutting."),
     "quality_hardware": (0.2, r"\b(?:ykk|riri|lampo)\b|\b(?:horn|corozo|mother[\s-]+of[\s-]+pearl)\s+buttons?\b",
                          "Quality hardware."),
+    # v30: leather goods. Two pieces can both honestly say "lambskin"; these are
+    # what separate a well-made bag from a copy (see pricebank.json, leather).
+    "turned_edges":     (0.3, r"\b(?:turned|folded|rembord[\u00e9e]e?)\s+edges?\b",
+                         "Turned edges. The leather is folded over and stitched, so no cut edge shows."),
+    "painted_edges":    (0.2, r"\b(?:painted|burnished|hand[\s-]+painted)\s+edges?\b"
+                              r"|\bedge[\s-]*(?:paint(?:ed|ing)?|burnish(?:ed|ing)?)\b",
+                         "Painted or burnished edges, sealed so they won't fray."),
+    "saddle_stitched":  (0.3, r"\bsaddle[\s-]*stitch(?:ed|ing)?\b",
+                         "Saddle stitched. One broken stitch won't unravel the seam."),
+    "leather_lining":   (0.2, r"\b(?:leather|calfskin|lambskin|goatskin|suede)[\s-]+lin(?:ed|ing)\b"
+                              r"|\blin(?:ed|ing)\s*(?:in|:)?\s*(?:100%\s*)?(?:calfskin|lambskin|goatskin|leather)\b",
+                         "Lined in leather, not fabric."),
     # Faults. Always applied in full, and any one of them rules out Heirloom.
     "overlocked_only":  (-0.3, None, "Overlocked seams only — fast, and the first to fray."),
     "sparse_stitching": (-0.3, None, "Loose, widely spaced stitching."),
@@ -462,6 +474,8 @@ CONSTRUCTION = {
     "loose_threads":    (-0.4, None, "Loose threads at the seams."),
     "glued_seams":      (-0.6, r"\b(?:glued|bonded)\s+seams?\b",
                          "Glued seams — they peel rather than wear."),
+    "raw_edges":        (-0.3, None, "Raw cut edges on leather. They fray and split with use."),
+    "plated_hardware":  (-0.2, None, "Thin plated hardware. The finish wears through."),
 }
 CONSTRUCTION_BONUS_CAP = 1.0
 HEIRLOOM_MIN_PROOFS = 2

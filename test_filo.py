@@ -1285,6 +1285,140 @@ def test_v25_colour_from_the_photo():
         relax=catalog.RELAX_ANY_PRICE) is not None, True)
 
 
+def test_v30_fair_price():
+    """Quality and price in one answer. The fair price is built from what a
+    piece is made of and how and where it's made, never from its brand."""
+    import json, value, aggregates
+    print("\n=== v30: fair price ===")
+
+    def fair(comp, cat, price=None, country="US", tag=None, cons=None):
+        d = fabric.quality_detail(comp, construction=cons)
+        return value.assess({"composition": comp, "category": cat, "price": price,
+                             "country": country, "tag_text": tag}, d, d["score"])
+
+    # The bank: every source id resolves, every number says what kind it is.
+    bank = json.load(open("pricebank.json"))
+    ids, missing, unkinded = set(bank["sources"]), [], []
+
+    def walk(o, path=""):
+        if isinstance(o, dict):
+            if "src" in o:
+                for x in (o["src"] if isinstance(o["src"], list) else [o["src"]]):
+                    missing.extend(y for y in x.split("|") if y not in ids)
+                if "kind" not in o:
+                    unkinded.append(path)
+            for k, v in o.items():
+                if k != "sources":
+                    walk(v, path + "/" + k)
+    walk(bank)
+    check("every source id in the bank resolves", missing, [])
+    check("every sourced number says sourced/derived/judgement", unkinded, [])
+
+    # Quality never reads price: same piece, same score at any price.
+    a, b = fair("100% cashmere", "sweater", 80), fair("100% cashmere", "sweater", 900)
+    check("price never changes the score",
+          fabric.quality_detail("100% cashmere")["score"], 7.9)
+    check("...but it changes the value verdict", a["level"] != b["level"], True)
+
+    # No price: still a range, and the 1.x prompt says it.
+    w = fair("100% wool", "sweater", None, "CA")
+    check("no price still gives a fair range", w["fair_low"] > 0 and w["fair_high"] > w["fair_low"], True)
+    check("...in CAD for Canada", w["currency"], "CAD")
+    check("...and no verdict", w["level"], None)
+    check("...said in plain words", w["range_line"].startswith("A fair price for a 100% wool sweater"), True)
+
+    # The five outcomes.
+    check("$180 polyester tee is overpriced", fair("100% polyester", "t-shirt", 180)["level"], value.OVERPRICED)
+    check("$12 cotton tee is worth it", fair("100% cotton", "t-shirt", 12)["level"], value.WORTH_IT)
+    check("$5 polyester tee: fair for what it is",
+          fair("100% polyester", "t-shirt", 5)["level"], value.FAIR_FOR_WHAT)
+    check("$40 faux leather jacket: you get what you pay for",
+          fair("100% polyurethane", "jacket", 40)["level"], value.GET_WHAT_YOU_PAY)
+    check("$400 faux leather jacket: overpriced",
+          fair("100% polyurethane", "jacket", 400)["level"], value.OVERPRICED)
+    check("Supima from Portugal at $25 is a steal",
+          fair("100% Supima cotton 220gsm", "t-shirt", 25, tag="Made in Portugal")["level"], value.STEAL)
+    check("$1,500 cashmere: good piece, high price",
+          fair("100% cashmere", "sweater", 1500)["level"], value.HIGH_PRICE)
+
+    # v28.1's lesson: an ordinary $30 cotton tee is not called a rip-off. With the
+    # grade and country unknown, "high" is judged against the generous reading.
+    check("a $30 cotton tee is not flagged", fair("100% cotton", "t-shirt", 30)["level"], value.WORTH_IT)
+
+    # A low price rules grades out; it never proves the piece is good.
+    check("$50 cashmere, grade unknown: check the grade",
+          fair("100% cashmere", "sweater", 50)["level"], value.CHECK_GRADE)
+    check("$20 cashmere: less than the cashmere itself costs",
+          fair("100% cashmere", "sweater", 20)["level"], value.TOO_CHEAP)
+    ga = fair("100% cashmere grade A", "sweater", None, tag="Made in Italy")
+    gc = fair("100% cashmere", "sweater", None)
+    check("grade A made in Italy is priced above unknown cashmere", ga["fair_low"] > gc["fair_low"], True)
+
+    # What's known narrows; what isn't widens.
+    known = fair("100% wool", "coat", None, tag="Made in Italy")
+    unknown = fair("100% wool", "coat", None)
+    check("Italian making raises the fair price", known["fair_low"] > unknown["fair_low"], True)
+    check("unknown country is reported", any(u["key"] == "country" for u in unknown["unknowns"]), True)
+    check("...and widens the could-be range",
+          unknown["could_be_high"] > unknown["fair_high"], True)
+    check("a stated weight raises the fair price",
+          fair("100% cotton 260gsm", "t-shirt")["fair_high"] > fair("100% cotton", "t-shirt")["fair_high"], True)
+
+    # The Row vs Etsy: both real lambskin. Only what is SEEN separates them.
+    row = "Shell: 100% lambskin leather Lining: 100% calfskin"
+    edge = fair(row, "shoulder bag", 1700, tag="Made in Italy. Nappa")
+    plain = fair(row, "shoulder bag", 1850, tag="Made in Italy. Nappa")
+    seen = fair(row, "shoulder bag", 1850, tag="Made in Italy. Nappa",
+                cons=["turned_edges", "saddle_stitched"])
+    check("Italian lambskin bag at $1,700: at the top of a fair price",
+          (edge["level"], edge["line"].startswith("At the top")), (value.WORTH_IT, True))
+    etsy = fair("100% lambskin leather", "shoulder bag", 140, tag="Made in China", cons=["raw_edges"])
+    check("bags are priced", plain is not None and plain["fair_high"] > 0, True)
+    check("...at $1,850, make unseen: some of it is the name",
+          plain["level"], value.HIGH_PRICE)
+    check("...with turned edges and saddle stitching seen: worth it", seen["level"], value.WORTH_IT)
+    check("seen make raises the fair price", seen["fair_low"] > plain["fair_low"], True)
+    check("raw-edged $140 copy: you get what you pay for", etsy["level"], value.GET_WHAT_YOU_PAY)
+    check("leather lining is counted as leather",
+          any("leather lining" in x for x in plain["built_from"]), True)
+    check("the brand never appears in a line",
+          any("The Row" in (v["line"] or "") for v in (plain, seen)), False)
+
+    # Same make, same fair price, whatever the name on the listing.
+    n1 = fair("100% wool", "coat", 400, tag="Saint Laurent. Made in Italy")
+    n2 = fair("100% wool", "coat", 400, tag="No-name label. Made in Italy")
+    check("the brand name never moves the fair price", (n1["fair_low"], n1["fair_high"]),
+          (n2["fair_low"], n2["fair_high"]))
+
+    # House words: no dashes in anything a shopper reads.
+    lines = [fair(c, g, p)[k] for c, g, p in (("100% wool", "coat", 900), ("100% polyester", "t-shirt", 180),
+                                               ("100% cashmere", "sweater", 50), ("100% linen", "shirt", None))
+             for k in ("line", "range_line")]
+    check("no dashes in shopper copy", [l for l in lines if l and ("\u2014" in l or "\u2013" in l)], [])
+
+    # Never blocks a verdict.
+    check("nothing to price returns None", fair("100% polyester", "umbrella"), None)
+    check("a broken input returns None, never raises",
+          value.assess({"composition": None}, {"matched": None}, 5), None)
+
+    # Shopper prices: only over the privacy floor, and never the rows themselves.
+    rows = [(f"s{i}", "sweater", "100% wool", "CA", 7.9, "80-120") for i in range(aggregates.K_ANONYMITY_FLOOR)]
+    cells = aggregates.price_cells(rows=rows)
+    check("a full cell is reported", cells.get(("sweater", "wool", "good", "CA"), {}).get("median"), 100)
+    small = aggregates.price_cells(rows=rows[:-1])
+    check("one shopper under the floor: nothing", small, {})
+    check("no session ever leaves", "s0" in json.dumps(list(cells.values())), False)
+
+    # Options: each gets a fair price read, better value first among equals.
+    import main
+    alts = [{"name": "A", "price": 900, "score": 7.9, "composition": "100% cashmere", "fit": "better"},
+            {"name": "B", "price": 300, "score": 7.9, "composition": "100% cashmere", "fit": "better"},
+            {"name": "C", "price": 200, "score": 7.9, "composition": "100% cashmere", "fit": "pricier"}]
+    main._value_alternatives(alts, {"category": "sweater"}, "US")
+    check("options carry a fair price", all("fair_price" in a for a in alts), True)
+    check("better value first within the same fit", [a["name"] for a in alts], ["B", "A", "C"])
+
+
 if __name__ == "__main__":
     test_parser()
     test_scoring()
@@ -1321,6 +1455,7 @@ if __name__ == "__main__":
     test_v21_breakdown()
     test_v24_colour_changes_the_list_and_hoodies()
     test_v25_colour_from_the_photo()
+    test_v30_fair_price()
     print()
     if FAILS:
         print(f"{len(FAILS)} FAILURES")

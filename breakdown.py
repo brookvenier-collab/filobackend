@@ -110,6 +110,12 @@ MAKE = {
     "puckered_seams": ("Puckered seams", "The fabric bunches along the seam. A sign of rushed sewing."),
     "loose_threads": ("Loose threads", "Threads were left untrimmed or are coming undone."),
     "glued_seams": ("Glued seams", "Edges are stuck with glue, not sewn. Glue lets go over time."),
+    "turned_edges": ("Turned edges", "The leather is folded over and stitched. No cut edge shows."),
+    "painted_edges": ("Sealed edges", "The cut edges are painted or burnished so they will not fray."),
+    "saddle_stitched": ("Saddle stitched", "Sewn with two needles. One broken stitch will not undo the seam."),
+    "leather_lining": ("Leather lining", "Lined in leather, not fabric. It costs more and lasts longer."),
+    "raw_edges": ("Raw edges", "The leather edges are left cut. They fray and split with use."),
+    "plated_hardware": ("Plated hardware", "The metal is thinly coated. The finish wears through."),
 }
 
 

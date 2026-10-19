@@ -177,3 +177,91 @@ def coverage() -> Dict[str, Any]:
         "floor": K_ANONYMITY_FLOOR,
         "sellable": bool(dev and dev >= K_ANONYMITY_FLOOR * 10),
     }
+
+
+# ------------------------------------------------------------- v30 fair price
+# What Filo shoppers actually saw pieces priced at, by kind of piece. Feeds the
+# fair price (value.py) as a third, clearly labelled line next to what it costs
+# to make and what shops list it for. Same floor as everything else here: a
+# cell with fewer than K_ANONYMITY_FLOOR distinct devices does not exist.
+#
+# Prices are only ever bands (events.price_band), so a cell's "price" is the
+# middle of its bands. Session hashes are read to count devices and never leave
+# this function.
+import time as _time
+
+BAND_MID = {"0-20": 10, "20-40": 30, "40-60": 50, "60-80": 70, "80-120": 100,
+            "120-200": 160, "200-400": 300, "400+": 500}
+_CELL_CACHE = {"at": 0.0, "cells": {}}
+CELL_TTL_S = 3600
+
+
+def _quality_band(score):
+    if score is None:
+        return None
+    s = float(score)
+    s = s / 10 if s > 10 else s            # the app may send 0-100
+    return "good" if s >= 6 else "mid" if s >= 4.5 else "low"
+
+
+def _weighted_pct(sorted_vals, q):
+    if not sorted_vals:
+        return None
+    i = min(len(sorted_vals) - 1, max(0, int(round(q * (len(sorted_vals) - 1)))))
+    return sorted_vals[i]
+
+
+def price_cells(days: int = 180, rows: Optional[List[tuple]] = None) -> Dict[tuple, Dict[str, Any]]:
+    """{(group, fibre, quality, market): summary}, only cells over the floor.
+
+    rows can be passed in for tests: (session_hash, category, composition,
+    country, score, price_band)."""
+    import fabric
+    import value
+    if rows is None:
+        rows = _query(
+            """
+            SELECT session_hash, category, composition, country, score, price_band
+            FROM scan_events
+            WHERE event = 'scan_verdict' AND price_band IS NOT NULL
+              AND composition IS NOT NULL AND category IS NOT NULL
+              AND occurred_hour > NOW() - INTERVAL '%s days'
+            """ % int(days))
+    cells: Dict[tuple, Dict[str, Any]] = {}
+    for sess, category, composition, country, score, band in rows:
+        if band not in BAND_MID:
+            continue
+        group = value.group_for(category)
+        _, matched = fabric.quality_score(composition or "")
+        if not group or not matched:
+            continue
+        fibre = max(matched, key=lambda m: m[1])[0]
+        q = _quality_band(score)
+        market = "CA" if (country or "").upper() == "CA" else "US"
+        c = cells.setdefault((group, fibre, q, market), {"devices": set(), "prices": []})
+        c["devices"].add(sess)
+        c["prices"].append(BAND_MID[band])
+    out = {}
+    for key, c in cells.items():
+        n = len(c["devices"])
+        if n < K_ANONYMITY_FLOOR:
+            continue
+        prices = sorted(c["prices"])
+        out[key] = {"devices": n, "scans": len(prices),
+                    "p25": _weighted_pct(prices, 0.25), "median": _weighted_pct(prices, 0.5),
+                    "p75": _weighted_pct(prices, 0.75),
+                    "currency": "CAD" if key[3] == "CA" else "USD"}
+    return out
+
+
+def price_cell(group, fibre, quality, market):
+    """One cell, from an hourly cache. None when it isn't over the floor."""
+    now = _time.time()
+    if now - _CELL_CACHE["at"] > CELL_TTL_S:
+        try:
+            _CELL_CACHE["cells"] = price_cells()
+        except Exception as exc:          # noqa: BLE001
+            log.warning("aggregates: price cells failed (%s)", exc)
+            _CELL_CACHE["cells"] = {}
+        _CELL_CACHE["at"] = now
+    return _CELL_CACHE["cells"].get((group, fibre, quality, market))

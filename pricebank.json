@@ -1,0 +1,359 @@
+{
+  "_about": "Filo fair price data bank (v30, 19 Oct 2026). What a piece costs to make well, built up from fabric, making and markup, so Filo can say what a fair price is for what the tag says. Every number carries a source id (see 'sources') and a kind: 'sourced' (read from the source), 'derived' (arithmetic on sourced numbers, shown in 'how'), or 'judgement' (direction from a source, size set by Filo; replace when a source gives a number). All money is USD unless marked. Read by value.py. Research notes: claude/filo-v30-fair-price.md in the Project.",
+  "as_of": "2026-10-19",
+
+  "fx": {
+    "_note": "Mid rates for 19 Oct 2026. Update monthly. Only used to turn sourced local prices into USD, and USD into CAD for Canadian shoppers.",
+    "USD_CAD": {"value": 1.4123, "src": "fx_psl_usdcad", "kind": "sourced"},
+    "EUR_USD": {"value": 1.1207, "src": "fx_psl_eurusd", "kind": "sourced"},
+    "AUD_USD": {"value": 0.6973, "src": "fx_psl_audusd", "kind": "sourced"},
+    "USD_INR": {"value": 94.9478, "src": "fx_psl_usdinr", "kind": "sourced"},
+    "USD_CNY": {"value": 6.6822, "src": "fx_cb_usdcny", "kind": "sourced"}
+  },
+
+  "garments": {
+    "_note": "mass_kg: finished garment. gsm: the fabric weight that mass assumes, so a stated weight can scale it. waste: cutting waste. minutes: sewing minutes for a standard make. trims_usd: buttons, zips, labels, thread. process: knit or woven, which sets the fabric conversion cost.",
+    "t-shirt":  {"mass_kg": 0.15, "gsm": 200, "waste": 0.15, "minutes": 15, "trims_usd": 0.20, "process": "knit",
+                 "src": ["ecobalyse_products", "ecobalyse_examples", "ecobalyse_complexity"], "kind": "sourced",
+                 "note": "trims: judgement (thread and labels only)."},
+    "top":      {"mass_kg": 0.15, "gsm": 200, "waste": 0.15, "minutes": 15, "trims_usd": 0.20, "process": "knit",
+                 "src": ["ecobalyse_products"], "kind": "sourced", "note": "Priced as an Ecobalyse t-shirt."},
+    "blouse":   {"mass_kg": 0.20, "gsm": 120, "waste": 0.20, "minutes": 22, "trims_usd": 0.45, "process": "woven",
+                 "src": ["ocs_shirt_smv", "cbi_costing"], "kind": "judgement",
+                 "note": "Between a tee and a shirt by weight; shirt sewing minutes."},
+    "shirt":    {"mass_kg": 0.25, "gsm": 200, "waste": 0.20, "minutes": 22, "trims_usd": 0.56, "process": "woven",
+                 "src": ["ecobalyse_examples", "ocs_shirt_smv", "cbi_costing"], "kind": "sourced",
+                 "note": "Shirt minutes: 16.5 to 31 measured; 22 from an operation breakdown. Trims from the CBI shirt costing."},
+    "sweater":  {"mass_kg": 0.55, "gsm": 250, "waste": 0.20, "minutes": 15, "trims_usd": 0.20, "process": "knit",
+                 "fine_mass_kg": 0.32,
+                 "src": ["ecobalyse_examples", "ecobalyse_complexity", "parcelpath_sweater"], "kind": "sourced",
+                 "note": "550 g is Ecobalyse's sweater. Fine-gauge cashmere, merino and silk knits use fine_mass_kg (250 to 400 g, low-confidence source)."},
+    "cardigan": {"mass_kg": 0.55, "gsm": 250, "waste": 0.20, "minutes": 20, "trims_usd": 0.60, "process": "knit",
+                 "fine_mass_kg": 0.32,
+                 "src": ["ecobalyse_examples", "ecobalyse_complexity"], "kind": "judgement",
+                 "note": "A sweater plus a button band and buttons."},
+    "hoodie":   {"mass_kg": 0.45, "gsm": 300, "waste": 0.20, "minutes": 20, "trims_usd": 0.40, "process": "knit",
+                 "src": ["printful_hoodie", "coats_sweatshirt"], "kind": "judgement",
+                 "note": "Weight 340 to 450 g (Printful). Minutes not published; set between a tee and jeans."},
+    "jeans":    {"mass_kg": 0.45, "gsm": 250, "waste": 0.22, "minutes": 30, "trims_usd": 1.00, "process": "woven",
+                 "src": ["ecobalyse_products", "ecobalyse_examples", "lahore_jeans_smv"], "kind": "sourced",
+                 "note": "Jeans take 15 to 33 minutes in measured factories. Trims (zip, rivets, button): judgement."},
+    "trousers": {"mass_kg": 0.45, "gsm": 250, "waste": 0.20, "minutes": 30, "trims_usd": 0.60, "process": "woven",
+                 "src": ["ecobalyse_products", "ecobalyse_examples", "udsm_smv"], "kind": "sourced"},
+    "shorts":   {"mass_kg": 0.25, "gsm": 250, "waste": 0.20, "minutes": 20, "trims_usd": 0.50, "process": "woven",
+                 "src": ["ecobalyse_products"], "kind": "judgement", "note": "About half a pair of trousers."},
+    "leggings": {"mass_kg": 0.20, "gsm": 220, "waste": 0.15, "minutes": 12, "trims_usd": 0.20, "process": "knit",
+                 "src": ["ecobalyse_complexity"], "kind": "judgement"},
+    "skirt":    {"mass_kg": 0.30, "gsm": 200, "waste": 0.20, "minutes": 15, "trims_usd": 0.40, "process": "woven",
+                 "src": ["ecobalyse_examples", "ecobalyse_complexity"], "kind": "sourced"},
+    "dress":    {"mass_kg": 0.35, "gsm": 200, "waste": 0.20, "minutes": 15, "trims_usd": 0.50, "process": "woven",
+                 "src": ["ecobalyse_products", "parcelpath_dress"], "kind": "sourced",
+                 "note": "Ecobalyse prices a dress like a skirt (15 minutes). Weight 170 to 454 g."},
+    "jacket":   {"mass_kg": 0.70, "gsm": 350, "waste": 0.20, "minutes": 60, "trims_usd": 2.00, "process": "woven",
+                 "src": ["ecobalyse_complexity", "parcelpath_jacket"], "kind": "judgement",
+                 "note": "Ecobalyse's coat/jacket is 60 minutes. Lighter than a coat."},
+    "blazer":   {"mass_kg": 0.50, "gsm": 300, "waste": 0.20, "minutes": 120, "trims_usd": 3.00, "process": "woven",
+                 "src": ["ecobalyse_complexity", "mrporter_canvas", "parcelpath_jacket"], "kind": "judgement",
+                 "note": "A tailored jacket is about 180 operations: Ecobalyse's 'very high' 120 minutes."},
+    "coat":     {"mass_kg": 0.95, "gsm": 450, "waste": 0.20, "minutes": 60, "trims_usd": 3.00, "process": "woven",
+                 "src": ["ecobalyse_examples", "ecobalyse_products", "ecobalyse_complexity"], "kind": "sourced"}
+  },
+
+  "leather_goods": {
+    "_note": "Leather is priced by area and hours, not weight. sqft: leather in the finished piece. yield: multiply for cutting waste and hide defects. hours by make: standard factory, fine, atelier. trims_usd by make.",
+    "bag": {"sqft": 10, "yield": 1.25,
+            "hours": {"basic": 1, "standard": 2, "fine": 3, "exceptional": 6},
+            "trims_usd": {"basic": 3, "standard": 8, "fine": 20, "exceptional": 40},
+            "src": ["tanner_lambskin", "tanner_polene", "tanner_cuyana", "tanner_mansur", "tanner_senreve", "leather_waste", "hermes_hours", "chanel_hours"],
+            "kind": "derived",
+            "how": "About 10 sq ft per bag (teardowns of Polène, Cuyana, Senreve: 7 to 12). 20% cutting waste plus hide defects gives 1.25. Standard hours: teardown labour of $40 to $100 (Cuyana about $40, Mansur Gavriel about $45, Polène about $100) is already a factory's full charge, so divided by Filo's loaded Italian or Spanish rate (wage x burden x profit, about $36 to $46 an hour) it is 1 to 2.5 hours. Basic, fine and exceptional are judgements. Two signs of careful making (turned edges, saddle stitching) are not proof of atelier work, so exceptional stays far below the real atelier hours of Hermès (15 to 24) and Chanel (15 to 20), which are the ceiling. Hardware 2 to 10 dollars wholesale (Alibaba guide); fine and exceptional are judgement."},
+    "jacket": {"sqft": 40, "yield": 1.15,
+            "hours": {"basic": 3, "standard": 4, "fine": 8, "exceptional": 16},
+            "trims_usd": {"basic": 5, "standard": 12, "fine": 25, "exceptional": 45},
+            "src": ["fedora_jacket_sqft", "blackbear_jacket_day", "eos_allowance"],
+            "kind": "judgement",
+            "how": "30 to 50 sq ft per jacket (low-confidence sources agree). One small-batch maker takes about a day per jacket. 10% allowance for marks. No published factory hours or cost teardown: Filo's weakest leather number, says so in the app."}
+  },
+
+  "fibres": {
+    "_note": "usd_per_kg: raw fibre (or yarn, where marked). grades are picked from what the tag or listing says. A fibre with no grade stated uses 'default' and the range spans 'low' to 'high'.",
+    "cotton": {
+      "default": "upland",
+      "grades": {
+        "upland":       {"usd_per_kg": 1.51, "range": [1.44, 1.58], "src": "usda_cotton_2026", "kind": "sourced",
+                         "line": "Regular cotton."},
+        "long_staple":  {"usd_per_kg": 3.40, "range": [3.10, 4.03], "src": "usda_cotton_2026|eca_2025", "kind": "sourced",
+                         "line": "Long-staple cotton (Pima, Supima, Egyptian). Longer fibres spin a smoother, stronger yarn that pills less, and the fibre costs about twice as much."}
+      },
+      "range_grades": ["upland", "long_staple"]
+    },
+    "wool": {
+      "default": "standard",
+      "grades": {
+        "standard":     {"usd_per_kg": 6.22, "range": [5.36, 7.04], "src": "awi_micron_oct2026", "kind": "derived",
+                         "how": "26 to 28 micron clean wool, A$7.68 to A$10.10/kg, at 0.6973.",
+                         "line": "Regular wool, around 26 to 28 microns."},
+        "merino":       {"usd_per_kg": 14.25, "range": [12.80, 15.70], "src": "awi_micron_oct2026", "kind": "derived",
+                         "how": "19 to 21 micron, A$18.36 to A$22.51/kg clean.",
+                         "line": "Merino, around 19 to 21 microns. Finer fibre bends away from skin instead of prickling."},
+        "fine_merino":  {"usd_per_kg": 17.75, "range": [17.30, 18.40], "src": "awi_micron_oct2026", "kind": "derived",
+                         "how": "16.5 to 18 micron, A$24.88 to A$26.42/kg clean.",
+                         "line": "Extra-fine merino or a stated Super grade. Fibre this fine costs about three times regular wool."}
+      },
+      "range_grades": ["standard", "merino"]
+    },
+    "merino": {"alias_of": "wool", "default": "merino", "range_grades": ["merino", "fine_merino"]},
+    "cashmere": {
+      "default": "commercial",
+      "yarn": true,
+      "grades": {
+        "commercial":   {"usd_per_kg": 95, "range": [60, 120], "src": "wfs_cashmere_yarn", "kind": "sourced",
+                         "how": "16.5 micron undyed yarn $90 to $120/kg FOB; the same source's grade table puts commercial yarn (16.5 to 18.5 microns) at $60 to $100.",
+                         "line": "Commercial cashmere yarn, 16.5 microns and up, shorter fibres. Short fibres work loose, which is why cheap cashmere pills."},
+        "premium":      {"usd_per_kg": 160, "range": [140, 180], "src": "wfs_cashmere_yarn", "kind": "sourced",
+                         "line": "Premium cashmere yarn, about 15.5 microns."},
+        "grade_a":      {"usd_per_kg": 255, "range": [180, 300], "src": "wfs_cashmere_yarn", "kind": "sourced",
+                         "how": "14 micron undyed yarn $220 to $300/kg FOB; the source's luxury grade (14 to 15 microns) is $180 to $300.",
+                         "line": "Grade A cashmere yarn, about 14 to 14.5 microns with long fibres. Softer, and much slower to pill."}
+      },
+      "range_grades": ["commercial", "premium"]
+    },
+    "silk": {
+      "default": "mulberry",
+      "grades": {
+        "mulberry":     {"usd_per_kg": 59.5, "range": [57, 61], "src": "pricewatch_silk_2025", "kind": "sourced",
+                         "how": "Raw silk 3A, FOB Shanghai: 2025 quarterly averages $57.29 and $58.60, Sep 2025 $59.6 to $60.5.",
+                         "line": "Mulberry silk, one long continuous filament."}
+      },
+      "range_grades": ["mulberry"]
+    },
+    "linen": {
+      "default": "long_line",
+      "grades": {
+        "long_line":    {"usd_per_kg": 6.28, "range": [3.71, 9.74], "src": "alliance_flax_2025", "kind": "derived",
+                         "how": "European scutched long fibre €5.60/kg (Oct 2025). The 2024-25 season ran from €3.31 (Jan 2025) to €8.69 (Jul 2024), at 1.1207. It peaked at €9.00 in Mar 2024.",
+                         "line": "Long-line flax. About three quarters of the world's long flax fibre is grown in France, Belgium and the Netherlands."}
+      },
+      "range_grades": ["long_line"]
+    },
+    "hemp":      {"alias_of": "linen", "note": "No hemp fibre price found. Priced like flax, its nearest relative."},
+    "polyester": {"default": "staple", "grades": {"staple": {"usd_per_kg": 1.30, "range": [0.99, 1.58], "src": "imarc_psf_2026", "kind": "sourced", "line": "Polyester."}}, "range_grades": ["staple"]},
+    "acrylic":   {"default": "staple", "grades": {"staple": {"usd_per_kg": 2.20, "range": [2.08, 2.40], "src": "imarc_acrylic_2026", "kind": "sourced", "line": "Acrylic."}}, "range_grades": ["staple"]},
+    "nylon":     {"default": "filament", "grades": {"filament": {"usd_per_kg": 3.00, "range": [2.18, 5.49], "src": "imarc_nylon_2026", "kind": "sourced", "line": "Nylon."}}, "range_grades": ["filament"]},
+    "polyamide": {"alias_of": "nylon"},
+    "elastane":  {"default": "fibre", "grades": {"fibre": {"usd_per_kg": 5.70, "range": [4.20, 8.50], "src": "tti_fibres_2026", "kind": "sourced", "line": "Elastane."}}, "range_grades": ["fibre"]},
+    "spandex":   {"alias_of": "elastane"},
+    "viscose":   {"default": "staple", "grades": {"staple": {"usd_per_kg": 2.00, "range": [1.76, 2.31], "src": "imarc_vsf_2026", "kind": "sourced", "line": "Viscose."}}, "range_grades": ["staple"]},
+    "rayon":     {"alias_of": "viscose"},
+    "bamboo":    {"alias_of": "viscose", "note": "Bamboo on a tag is almost always bamboo viscose."},
+    "acetate":   {"alias_of": "viscose", "note": "No acetate price found. Priced like viscose."},
+    "modal":     {"default": "staple", "grades": {"staple": {"usd_per_kg": 2.05, "range": [1.55, 2.55], "src": "tti_fibres_2026", "kind": "sourced", "line": "Modal."}}, "range_grades": ["staple"]},
+    "lyocell":   {"default": "staple", "grades": {"staple": {"usd_per_kg": 2.40, "range": [1.77, 3.30], "src": "f2f_lyocell|tti_fibres_2026", "kind": "sourced", "line": "Lyocell."}}, "range_grades": ["staple"]},
+    "tencel":    {"alias_of": "lyocell"},
+    "cupro":     {"alias_of": "lyocell", "note": "No cupro price found. Priced like lyocell."},
+    "polyurethane": {"alias_of": "polyester", "note": "Faux leather is a plastic coating on a fabric backing. Priced as a synthetic fabric."},
+    "pvc":       {"alias_of": "polyester"},
+    "bondedleather": {"alias_of": "polyester", "note": "Leather scraps glued to a backing. Priced as a synthetic fabric, never as leather."}
+  },
+
+  "fabric": {
+    "_note": "Fibre becomes fabric. fabric $/kg = fibre $/kg / yarn_yield + conversion[process]. For cashmere the bank holds yarn prices, so only the knitting part is added.",
+    "yarn_yield": {"value": 0.85, "kind": "judgement", "note": "Spinning loses some fibre. Direction is certain; 15% is Filo's working figure."},
+    "conversion_usd_per_kg": {
+      "knit":  {"value": 2.70, "range": [2.20, 3.20], "src": "indiamart_jersey|usda_cotton_2026", "kind": "derived",
+                "how": "Indian cotton jersey at ₹403 to ₹450/kg is $4.24 to $4.74/kg. Minus the cotton in it ($1.51 / 0.85 = $1.78) leaves about $2.70 for spinning, knitting, dyeing and finishing."},
+      "woven": {"value": 7.60, "range": [6.00, 9.00], "src": "cbi_costing|usda_cotton_2026", "kind": "derived",
+                "how": "CBI's worked shirt pays $2.81 for its fabric, including 3% waste. Filo's assumption (not CBI's) is about 0.29 kg of shirting (1.6 m at 1.52 m wide, about 120 g/m2): about $9.63/kg, or $9.35 net of waste. Minus the cotton leaves about $7.60. A teaching example, so the range is wide."},
+      "yarn_knit": {"value": 2.70, "src": "indiamart_jersey", "kind": "derived",
+                "how": "Knitting and finishing only, for fibres priced as yarn (cashmere). Same as knit; the spinning share is already in the yarn price."}
+    }
+  },
+
+  "leather": {
+    "_note": "usd_per_sqft of finished leather. Prices from suppliers to small makers are a ceiling; factories pay less. Grade comes from the words on the tag or listing.",
+    "grades": {
+      "commodity": {"usd_per_sqft": 2.20, "range": [1.47, 2.92], "src": "indiamart_lamb|tanner_cuyana", "kind": "derived",
+                    "how": "Indian finished lambskin ₹140/sq ft is $1.47. Cuyana's pebbled cowhide works out to about $2.92/sq ft.",
+                    "line": "Commodity leather. Often corrected or coated so it looks even. Real leather, but it won't age like full grain."},
+      "standard":  {"usd_per_sqft": 4.80, "range": [3.60, 6.00], "src": "buyleather_nappa|nona_lamb|tanner_lambskin", "kind": "derived",
+                    "how": "Italian nappa lambskin stock lots work out to $3.60 (€3.2) to $4.70/sq ft; one tanner's rough lambskin figure is $6.",
+                    "line": "Good European leather, the kind most well-made bags use."},
+      "top":       {"usd_per_sqft": 9.00, "range": [6.00, 14.00], "src": "tanner_lambskin|rm_walpier|rm_plonge|rm_haas", "kind": "judgement",
+                    "how": "No tannery's factory price list is public. Prices to small makers run $14 to $31/sq ft (Walpier, plongé lambskin, Haas calf) and big buyers pay less; teardowns of Italian and Spanish bags put leather at $15 to $60 a bag (about $1.5 to $6/sq ft). Filo uses $6 to $14: above the teardown leather, below the small-maker ceiling.",
+                    "line": "Top-tannery leather (aniline or full grain from the best French and Italian tanneries)."}
+    },
+    "unknown_range": ["commodity", "standard"]
+  },
+
+  "countries": {
+    "_note": "wage_usd_h: what a sewing operator earns per hour (low, high). A known country uses the middle; an unknown one spans the whole range. Making cost = minutes x wage x burden x efficiency x profit (CBI method). Europe's high value is the national labour cost per hour including employer charges, which overstates sewing pay, so the range is honest about it.",
+    "bangladesh": {"wage_usd_h": [0.55, 0.65], "src": "bd_min_wage|statista_wages", "kind": "derived",
+                   "how": "12,500 taka a month (about $114) over 208 hours; average manufacturing $135 to $140."},
+    "cambodia":   {"wage_usd_h": [1.01, 1.23], "src": "kh_min_wage|statista_wages", "kind": "derived", "how": "$210 a month over 208 hours; average $256."},
+    "vietnam":    {"wage_usd_h": [0.67, 1.00], "src": "vn_min_wage", "kind": "sourced", "how": "Regional minimums, Jan 2026."},
+    "india":      {"wage_usd_h": [1.06, 1.41], "src": "wageindicator_in", "kind": "derived", "how": "₹20,951 to ₹27,794 a month over 208 hours, at 94.95."},
+    "pakistan":   {"wage_usd_h": [0.65, 0.70], "src": "statista_wages", "kind": "derived", "how": "Average manufacturing $135 to $140 a month."},
+    "indonesia":  {"wage_usd_h": [0.93, 0.95], "src": "statista_wages", "kind": "derived", "how": "Average manufacturing $194 a month."},
+    "china":      {"wage_usd_h": [2.60, 3.74], "src": "cn_min_wage", "kind": "derived", "how": "Minimums of 17.4 to 25 yuan an hour, at 6.68."},
+    "turkey":     {"wage_usd_h": [2.91, 3.40], "src": "tr_min_wage", "kind": "derived", "how": "Net minimum about $655 a month over 225 hours (45-hour week); gross is higher."},
+    "romania":    {"wage_usd_h": [5.15, 6.00], "src": "eurostat_min_2026", "kind": "derived", "how": "€795 a month over 173 hours."},
+    "portugal":   {"wage_usd_h": [6.95, 20.51], "src": "eurostat_min_2026|insee_labour_2025", "kind": "derived",
+                   "how": "Low: minimum €1,073 a month over 173 hours. High: national labour cost €18.3/h."},
+    "spain":      {"wage_usd_h": [8.00, 29.14], "src": "insee_labour_2025", "kind": "judgement",
+                   "how": "High: national labour cost €26.0/h. Low: no sewing wage found; set between Portugal and Italy."},
+    "italy":      {"wage_usd_h": [12.42, 35.30], "src": "ccnl_pelli_2025|insee_labour_2025", "kind": "derived",
+                   "how": "Low: leather industry contract minimum €10.5 to €11.8/h base. High: national labour cost €31.5/h."},
+    "france":     {"wage_usd_h": [13.47, 50.10], "src": "smic_2026|insee_labour_2025", "kind": "derived",
+                   "how": "Low: SMIC €12.02/h. High: national labour cost €44.7/h."},
+    "usa":        {"wage_usd_h": [15.94, 16.83], "src": "bls_oes_sewing", "kind": "sourced", "how": "Sewing operators, cut-and-sew apparel, May 2023."},
+    "canada":     {"wage_usd_h": [15.94, 16.83], "src": "bls_oes_sewing", "kind": "judgement", "how": "No Canadian sewing wage found yet. US figure used."},
+    "japan":      {"wage_usd_h": [13.47, 50.10], "src": "insee_labour_2025", "kind": "judgement", "how": "No Japanese garment wage found yet. Priced like France."},
+    "_unknown":   {"wage_usd_h": [0.55, 3.74], "kind": "derived",
+                   "how": "Not on the tag: from Bangladesh to coastal China, where most clothing is made."}
+  },
+  "country_names": {
+    "bangladesh": ["bangladesh"], "cambodia": ["cambodia"], "vietnam": ["vietnam", "viet nam"],
+    "india": ["india"], "pakistan": ["pakistan"], "indonesia": ["indonesia"],
+    "china": ["china", "prc", "p.r.c", "hong kong"], "turkey": ["turkey", "turkiye", "türkiye"],
+    "romania": ["romania"], "portugal": ["portugal"], "spain": ["spain"], "italy": ["italy", "italia"],
+    "france": ["france"], "usa": ["usa", "u.s.a", "united states", "u.s."], "canada": ["canada"],
+    "japan": ["japan"]
+  },
+
+  "making": {
+    "burden":     {"value": 1.6, "src": "cbi_costing", "kind": "derived", "how": "CBI's worked factory loads direct wages about 1.6 times for supervisors, overhead and rent."},
+    "efficiency": {"value": 1.25, "src": "cbi_costing", "kind": "sourced", "how": "CBI adds 25% to standard minutes for lost time."},
+    "profit":     {"value": 1.20, "src": "cbi_costing", "kind": "sourced", "how": "CBI's factory profit on making and on the whole order."},
+    "packing_usd": {"value": 0.035, "src": "cbi_costing", "kind": "sourced"}
+  },
+
+  "make_tiers": {
+    "_note": "How it's made changes the minutes. minutes_x multiplies sewing minutes; price_x is a market premium measured with brand held fixed. Only what a seam photo, the tag or the listing actually shows moves a piece up a tier.",
+    "basic":       {"minutes_x": 0.85, "line": "Built fast: faults were seen at the seams.", "kind": "judgement"},
+    "unknown":     {"minutes_x": 1.00, "line": "How it's sewn hasn't been checked.", "kind": "judgement"},
+    "standard":    {"minutes_x": 1.00, "line": "Standard factory make.", "kind": "judgement"},
+    "fine":        {"minutes_x": 1.25, "line": "Careful make: finished seams or a stated grade.", "kind": "judgement",
+                    "src": "f2f_spi|heddels_felled",
+                    "how": "Denser stitching sews about 43% slower; flat-felled and French seams need extra passes. Filo uses +25% on the whole garment."},
+    "exceptional": {"minutes_x": 1.60, "line": "Exceptional make: several signs of slow, careful work and no faults.", "kind": "judgement",
+                    "src": "f2f_spi|mrporter_canvas"}
+  },
+  "construction_premiums": {
+    "_note": "Measured market premiums (brand held fixed) for specific features, from the US Bureau of Labor Statistics price models.",
+    "hand_finished": {"price_x": 1.24, "src": "bls_suits", "kind": "sourced", "how": "Hand-stitching adds about 24% to a men's suit."},
+    "lined":         {"price_x": 1.14, "src": "bls_dresses", "kind": "sourced", "how": "A full lining adds about 14% to a women's dress."}
+  },
+
+  "landed": {
+    "_note": "Duty and freight on top of the factory price, to the shopper's country.",
+    "freight": {"value": 0.05, "kind": "judgement", "note": "Sea freight is a small share; Filo uses 5% of the factory price."},
+    "duty": {
+      "CA": {"default": 0.18, "free_from": ["bangladesh", "cambodia", "portugal", "spain", "italy", "france", "romania", "canada", "usa"],
+             "src": "cbsa_ch61|usebase_6106", "kind": "sourced",
+             "note": "18% on knitted clothing; free from least developed countries and from the EU (CETA). Woven lines not checked one by one."},
+      "US": {"default": 0.165, "add": {"bangladesh": 0.10, "cambodia": 0.10, "india": 0.10, "pakistan": 0.10, "indonesia": 0.10, "vietnam": 0.125, "china": 0.125, "turkey": 0.125, "canada": 0.10},
+             "free_from": ["usa"],
+             "src": "hts_6109|ey_301_2026|ey_301_2026b", "kind": "sourced",
+             "note": "16.5% on cotton tees and sweaters, plus the Section 301 add-ons from 24 Jul 2026: 10% (Bangladesh, Cambodia, India, Pakistan, Indonesia, Canada) or 12.5% (Vietnam, China, Turkey). The EU's combined rate is offset differently; Filo leaves EU pieces at the base rate. Changes often; re-check."}
+    }
+  },
+
+  "markup": {
+    "_note": "Factory price to shop price. The fair range runs from a lean shop's markup to a typical full-price shop's.",
+    "lean":    {"value": 2.15, "range": [2.15, 2.40], "applies_to": "landed", "src": "hm_2025|inditex_2025", "kind": "derived",
+                "how": "H&M and Inditex gross margins of 53.4% and 58.3% mean shop price is 2.15 to 2.4 times landed cost."},
+    "typical": {"value": 6.0, "range": [4.0, 8.0], "applies_to": "fob", "src": "cbi_costing", "kind": "derived",
+                "how": "In Europe, shop price is typically 4 to 8 times the factory price. Filo uses the middle, 6, as the top of a fair range, and only calls a price high past 1.25 times that (7.5, near CBI's top)."},
+    "luxury_note": {"src": "tanner_chanel|fashionlaw_dior", "kind": "sourced",
+                "how": "Luxury small leather goods sell for 12 to 16 times what they cost to make; a Milan court heard of Dior bags supplied for €53 and sold for €2,600."}
+  },
+
+  "verdict_rules": {
+    "_note": "Where a price sits against the fair range. above_x: how far over the top of the range before Filo says the price is high. way_above_x: before it says 'about N times'.",
+    "above_x": 1.25,
+    "way_above_x": 2.5,
+    "quality_good": 6.0,
+    "quality_low": 4.5,
+    "floor_premium_fibres": ["cashmere", "silk", "leather", "merino", "wool"],
+    "kind": "judgement",
+    "why": "A false 'overpriced' hurts a shopper's trust more than a missed one (v28.1), so the bar for saying a price is high is set above the range, not at it."
+  },
+
+  "sources": {
+    "ecobalyse_products":  {"title": "Ecobalyse textile product defaults (French government)", "url": "https://raw.githubusercontent.com/MTES-MCT/ecobalyse/master/public/data/textile/products.json", "confidence": "high"},
+    "ecobalyse_examples":  {"title": "Ecobalyse reference garment masses", "url": "https://raw.githubusercontent.com/MTES-MCT/ecobalyse/master/public/data/textile/examples.json", "confidence": "high"},
+    "ecobalyse_complexity":{"title": "Ecobalyse making minutes by complexity", "url": "https://raw.githubusercontent.com/MTES-MCT/ecobalyse/master/src/Data/Textile/MakingComplexity.elm", "confidence": "high"},
+    "parcelpath_sweater":  {"title": "Parcelpath sweater weights", "url": "https://parcelpath.com/shipping-terms-glossary/glossary-weights-and-measurements/how-much-does-a-sweater-weigh/", "confidence": "low"},
+    "parcelpath_dress":    {"title": "Parcelpath dress weights", "url": "https://parcelpath.com/shipping-terms-glossary/glossary-weights-and-measurements/how-much-does-a-dress-weigh/", "confidence": "low"},
+    "parcelpath_jacket":   {"title": "Parcelpath jacket weights", "url": "https://parcelpath.com/shipping-terms-glossary/glossary-weights-and-measurements/how-much-does-a-jacket-weigh/", "confidence": "low"},
+    "printful_hoodie":     {"title": "Printful hoodie weight guide", "url": "https://www.printful.com/blog/how-much-does-a-hoodie-weigh", "confidence": "medium"},
+    "coats_sweatshirt":    {"title": "Coats thread spec for sweatshirts", "url": "https://www.coats.com/en/?p=23007", "confidence": "high"},
+    "ocs_shirt_smv":       {"title": "Online Clothing Study, shirt operation breakdown", "url": "https://onlineclothingstudy.com/?p=11066", "confidence": "medium"},
+    "lahore_jeans_smv":    {"title": "Chaudhry & Faran, Lahore Journal of Economics 2016 (jeans SMV)", "url": "https://lahoreschoolofeconomics.edu.pk/assets/uploads/lje/Volume21/09_Chaudhry_and_Faran.pdf", "confidence": "high"},
+    "udsm_smv":            {"title": "University of Dar es Salaam garment SMV study 2022", "url": "https://repository.udsm.ac.tz/items/3acfe061-cc47-4b25-96f1-8a842e5f676b/full", "confidence": "medium"},
+    "cbi_costing":         {"title": "CBI (Netherlands government): how to calculate the cost price of an apparel item", "url": "https://cbi.eu/market-information/apparel/how-calculate-cost-price-apparel-item", "confidence": "medium"},
+    "mrporter_canvas":     {"title": "Mr Porter: suit construction and price tiers", "url": "https://www.mrporter.com/en-au/journal/fashion/men-suit-cost-tailor-half-fully-canvassed-price-24263946", "confidence": "medium"},
+    "f2f_spi":             {"title": "Fibre2Fashion: stitches per inch and sewing speed", "url": "https://fibre2fashion.com/industry-article/7121/stitches-per-inch", "confidence": "medium"},
+    "heddels_felled":      {"title": "Heddels: flat-felled vs overlocked seams", "url": "https://www.heddels.com/?p=24393", "confidence": "medium"},
+    "usda_cotton_2026":    {"title": "USDA Cotton Price Statistics, 6 Aug 2026", "url": "https://s3.amazonaws.com/barchart-news-store-prod/external_links/USDA/20260806-cnaacps.pdf", "confidence": "high"},
+    "eca_2025":            {"title": "Egyptian Cotton Association price sheets, Jul and Nov 2025", "url": "https://www.egyptiancottonassociation.com/wp-content/uploads/2025/11/Cotton-figures-20-11-2025.pdf", "confidence": "high"},
+    "awi_micron_oct2026":  {"title": "Australian Wool Innovation market reports and micron prices, Oct 2026", "url": "https://www.wool.com/market-intelligence/weekly-price-reports/20262027/week-15-october-2026/", "confidence": "medium"},
+    "wfs_cashmere_yarn":   {"title": "WFS Cashmere: yarn grades, microns and FOB prices, Mar 2026", "url": "https://www.wfscashmere.com/cashmere-yarn-sourcing-for-brands-grades-microns-and-traceability-checklist.html", "confidence": "medium"},
+    "pricewatch_silk_2025":{"title": "Price-Watch raw silk 3A prices, 2025", "url": "https://www.price-watch.ai/silk-prices/", "confidence": "medium"},
+    "alliance_flax_2025":  {"title": "Alliance for European Flax-Linen & Hemp economic observatory 2025", "url": "https://allianceflaxlinenhemp.eu/en/flax-linen-hemp-economic-observatory/flax-linen-and-hemp-economic-observatory-figures-2025", "confidence": "high"},
+    "imarc_psf_2026":      {"title": "IMARC polyester staple fibre prices Q2 2026", "url": "https://www.imarcgroup.com/polyester-staple-fiber-pricing-report", "confidence": "medium"},
+    "imarc_acrylic_2026":  {"title": "IMARC acrylic staple fibre price index", "url": "https://www.imarcgroup.com/news/acrylic-staple-fiber-price-index", "confidence": "medium"},
+    "imarc_nylon_2026":    {"title": "IMARC nylon DTY prices Q2 2026", "url": "https://www.imarcgroup.com/news/nylon-dty-price-update-sustained-growth-across-key-markets-in-q2-2026", "confidence": "medium"},
+    "imarc_vsf_2026":      {"title": "IMARC viscose staple fibre prices Q2 2026", "url": "https://www.imarcgroup.com/viscose-staple-fiber-pricing-report", "confidence": "medium"},
+    "tti_fibres_2026":     {"title": "Textile Tech Insight: global fibre prices 2026", "url": "https://textiletechinsight.com/article/global-fibre-prices-2026/", "confidence": "low"},
+    "f2f_lyocell":         {"title": "Fibre2Fashion lyocell prices (labelled illustrative)", "url": "https://www.fibre2fashion.com/market-intelligence/texpro-textile-and-apparel/raw-material-prices/viscose-value-chain/lyocell", "confidence": "low"},
+    "indiamart_jersey":    {"title": "IndiaMART cotton single jersey prices, Oct 2026", "url": "https://m.indiamart.com/impcat/knitted-cloth.html", "confidence": "medium"},
+    "indiamart_lamb":      {"title": "IndiaMART K.K. Enterprises lambskin prices", "url": "https://m.indiamart.com/kkenterprises-newdelhi/lamb-skin-leather.html", "confidence": "medium"},
+    "buyleather_nappa":    {"title": "BuyLeatherOnline aniline nappa lambskin (Tuscan stock lots)", "url": "https://buyleatheronline.com/en/home/81-3108-aniline-nappa-lambskin-premium-leather.html", "confidence": "high"},
+    "nona_lamb":           {"title": "Nona Source Italian lambskin deadstock", "url": "https://www.nona-source.com/products/c20a00007", "confidence": "high"},
+    "rm_plonge":           {"title": "RM Leather Supply European plongé lambskin", "url": "https://rmleathersupply.com/products/overstock-luxury-plonge-lambskin-60-off", "confidence": "high"},
+    "rm_haas":             {"title": "RM Leather Supply Tanneries Haas calfskin", "url": "https://rmleathersupply.com/products/tanneries-haas-novonappa-french-calfskin-leather-hides", "confidence": "high"},
+    "rm_walpier":          {"title": "RM Leather Supply Conceria Walpier Buttero", "url": "https://www.rmleathersupply.com/products/conceria-walpier-buttero-veg-tanned-leather-hides-7oz", "confidence": "high"},
+    "tanner_lambskin":     {"title": "Tanner Leatherstein: sheepskin and lambskin for bags", "url": "https://www.tannerleatherstein.com/blogs/tanners-newsleather/sheepskin-lambskin-leather-for-leather-bags", "confidence": "medium"},
+    "tanner_polene":       {"title": "Tanner Leatherstein: Polène Numéro Un teardown", "url": "https://www.tannerleatherstein.com/blogs/product-brand-reviews/polene-numero-uno-trio-where-high-quality-meets-reasonable-pricing", "confidence": "medium"},
+    "tanner_cuyana":       {"title": "Tanner Leatherstein: Cuyana Classic Easy Tote teardown", "url": "https://www.tannerleatherstein.com/blogs/product-brand-reviews/the-beauty-of-simplicity-inside-cuyanas-classic-easy-tote", "confidence": "medium"},
+    "tanner_chanel":       {"title": "PurseBop on Tanner Leatherstein luxury cost estimates", "url": "https://www.pursebop.com/viral-star-tanner-leatherstein-tells-you-how-much-your-bag-should-really-cost/", "confidence": "medium"},
+    "fashionlaw_dior":     {"title": "The Fashion Law: Dior and Armani subcontractor case, Milan", "url": "https://thefashionlaw.com/?p=98392", "confidence": "medium"},
+    "leather_waste":       {"title": "Leather Dictionary: cutting waste", "url": "https://leather-dictionary.com/index.php/Leather_cutting_waste", "confidence": "medium"},
+    "hermes_hours":        {"title": "Ignant: inside Hermès bag making", "url": "https://www.ignant.com/2019/11/05/an-exclusive-look-at-the-incredible-craftsmanship-behind-the-iconic-hermes-bags/", "confidence": "medium"},
+    "chanel_hours":        {"title": "Leather Luxury: how the Chanel 2.55 is made", "url": "https://www.leatherluxury.it/en/article/how-is-chanel-s-iconic-2-55-bag-made", "confidence": "medium"},
+    "fedora_jacket_sqft":  {"title": "Fedora Lounge forum: hide for a jacket", "url": "https://www.thefedoralounge.com/threads/any-advice-on-sourcing-your-own-hide-and-doing-mtm-jackets.109283/post-2958869", "confidence": "low"},
+    "blackbear_jacket_day":{"title": "Black Bear Brand: four sheepskins to a jacket", "url": "https://blackbearbrand.com/blog-1/four-sheepskins-to-a-jacket", "confidence": "medium"},
+    "eos_allowance":       {"title": "EOS Fabrics: calculating leather requirements", "url": "https://eosfabrics.com/pages/calculating-your-leather-requirements-luxurious-leather", "confidence": "medium"},
+    "bd_min_wage":         {"title": "FashionUnited: Bangladesh garment minimum wage", "url": "https://fashionunited.uk/news/business/what-the-new-minimum-wage-means-for-garment-workers-in-bangladesh/2023110872442", "confidence": "high"},
+    "kh_min_wage":         {"title": "DFDL: Cambodia garment minimum wage 2026", "url": "https://www.dfdl.com/insights/legal-and-tax-updates/cambodia-increase-in-minimum-wage-for-2026-for-the-garments-textiles-footwear/", "confidence": "high"},
+    "vn_min_wage":         {"title": "Vietnam government: regional minimum wage 2026", "url": "https://en.baochinhphu.vn/regional-minimum-wage-to-increase-by-72-from-january-1-2026-111251111092833451.htm", "confidence": "high"},
+    "cn_min_wage":         {"title": "China Briefing: minimum wages in China", "url": "https://china-briefing.com/news/minimum-wages-China", "confidence": "high"},
+    "wageindicator_in":    {"title": "WageIndicator: India textile and leather machine operators", "url": "https://prd.wageindicator.org/en-in/work-in-india/role-and-pay/india-textile-fur-and-leather-products-machine", "confidence": "medium"},
+    "statista_wages":      {"title": "Statista (USITC): wages in textile-producing countries", "url": "https://www.statista.com/chart/34510/wages-in-textile-producing-countries", "confidence": "medium"},
+    "tr_min_wage":         {"title": "Trading Economics: Turkey minimum wage 2026", "url": "https://tradingeconomics.com/turkey/minimum-wages/news/512201", "confidence": "medium"},
+    "eurostat_min_2026":   {"title": "Eurostat minimum wages Jan 2026 (Romania Insider)", "url": "https://www.romania-insider.com/business/eurostat-minimum-wage-romania-jan-2026", "confidence": "high"},
+    "insee_labour_2025":   {"title": "Insee: hourly labour cost in Europe, 2025", "url": "https://www.insee.fr/fr/statistiques/8733109", "confidence": "high"},
+    "ccnl_pelli_2025":     {"title": "CCNL Pelli e Cuoio pay tables, Dec 2025", "url": "https://ilccnl.it/ccnl/pelli-cuoio-ombrelli---industria/pelli-e-cuoio---industria/tabelleretributive", "confidence": "high"},
+    "smic_2026":           {"title": "French government: SMIC from 1 Jan 2026", "url": "https://www.info.gouv.fr/actualite/le-smic-revalorise-au-1er-janvier-2026", "confidence": "high"},
+    "bls_oes_sewing":      {"title": "US BLS: sewing machine operators, May 2023", "url": "https://www.bls.gov/OES/Current/oes516031.htm", "confidence": "high"},
+    "bls_suits":           {"title": "US BLS: men's suits price model", "url": "https://www.bls.gov/cpi/quality-adjustment/mens-suits.htm", "confidence": "high"},
+    "bls_dresses":         {"title": "US BLS: women's dresses price model", "url": "https://www.bls.gov/cpi/quality-adjustment/womens-dresses.htm", "confidence": "high"},
+    "cbsa_ch61":           {"title": "Canada Border Services Agency customs tariff, chapter 61", "url": "https://www.cbsa-asfc.gc.ca/trade-commerce/tariff-tarif/2024/html/00/ch61-eng.html", "confidence": "high"},
+    "usebase_6106":        {"title": "Canada tariff line 6106.10 by agreement", "url": "https://open-gov.usebase.io/tariffs/ca/61/610610", "confidence": "medium"},
+    "hts_6109":            {"title": "US HTS 6109.10.00 cotton t-shirts", "url": "https://tariffs.tandom.ai/hts-catalog/6109.10.00/of-cotton", "confidence": "high"},
+    "ey_301_2026b":        {"title": "EY: USTR finalizes Section 301 tariffs, 10% or 12.5% from 24 Jul 2026", "url": "https://taxnews.ey.com/news/2026-1607-ustr-finalizes-section-301-forced-labor-tariffs-on-60-economies-additional-tariffs-of-10-percent-or-125-percent-take-effect-24-july-2026", "confidence": "high"},
+    "tanner_mansur":       {"title": "Tanner Leatherstein: Mansur Gavriel teardown", "url": "https://tannerleatherstein.com/post/mansur-gavriel", "confidence": "medium"},
+    "tanner_senreve":      {"title": "Tanner Leatherstein: Senreve teardown", "url": "https://tannerleatherstein.com/post/senreve", "confidence": "medium"},
+    "ey_301_2026":         {"title": "EY: USTR Section 301 tariffs on 60 partners, Jul 2026", "url": "https://taxnews.ey.com/news/2026-1603-ustr-takes-final-action-imposing-tariffs-on-60-trading-partners-as-section-122-tariffs-expire", "confidence": "high"},
+    "hm_2025":             {"title": "H&M Group full-year report 2025", "url": "https://hmgroup.com/news/h-m-hennes-mauritz-ab-full-year-report-2025/", "confidence": "high"},
+    "inditex_2025":        {"title": "Inditex FY2025 results (SGI Europe)", "url": "https://www.sgieurope.com/financial-results/inditex-posts-record-sales-and-profits-in-fy25/120163.article", "confidence": "high"},
+    "fx_psl_usdcad":       {"title": "Pound Sterling Live USD/CAD 2026", "url": "https://www.poundsterlinglive.com/history/USD-CAD-2026", "confidence": "medium"},
+    "fx_psl_eurusd":       {"title": "Pound Sterling Live EUR/USD 2026", "url": "https://www.poundsterlinglive.com/history/EUR-USD-2026", "confidence": "medium"},
+    "fx_psl_audusd":       {"title": "Pound Sterling Live AUD/USD 2026", "url": "https://www.poundsterlinglive.com/history/AUD-USD-2026", "confidence": "medium"},
+    "fx_psl_usdinr":       {"title": "Pound Sterling Live USD/INR 2026", "url": "https://www.poundsterlinglive.com/history/USD-INR-2026", "confidence": "medium"},
+    "fx_cb_usdcny":        {"title": "CurrencyBeacon USD/CNY", "url": "https://currencybeacon.com/index.php/rates/USD/CNY", "confidence": "medium"},
+    "refashion_2025":      {"title": "Refashion barometer 2025 (France: €15.6 average per new item)", "url": "https://media-pro.refashion.fr/2025/09/cp_barometre_2025_refashion.pdf", "confidence": "high"},
+    "leeds_2025":          {"title": "Guo et al. 2025: price does not predict durability", "url": "https://eprints.whiterose.ac.uk/id/eprint/225641/1/1-s2.0-S2666784324000780-main.pdf", "confidence": "high"}
+  }
+}
