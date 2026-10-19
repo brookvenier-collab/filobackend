@@ -121,7 +121,7 @@ _FIBRE_CODES = {"co": "cotton", "pes": "polyester", "pl": "polyester", "pa": "po
                 "ea": "elastane", "el": "elastane", "wo": "wool", "wv": "wool", "wp": "wool",
                 "li": "linen", "se": "silk", "vi": "viscose", "cv": "viscose", "cmd": "modal",
                 "md": "modal", "cly": "lyocell", "ly": "lyocell", "pc": "acrylic", "acr": "acrylic",
-                "ws": "cashmere", "cu": "cupro", "pu": "polyurethane", "ca": "acetate"}
+                "ws": "cashmere", "cu": "cupro", "pu": "polyurethane"}  # no "ca": the Canadian CA number
 _CODE_RE = re.compile(r"(\d{1,3}\s*%\s*)(" + "|".join(sorted(_FIBRE_CODES, key=len, reverse=True))
                       + r")\b", re.I)
 # OCR reads O as 0 inside words ("C0TTON", "P0LYESTER").
@@ -764,6 +764,11 @@ LIFE_BASE = {
     # leggings: no Ecobalyse product. Laitala 2018 puts sportswear at ~1.5
     # wears per wash; base life borrowed from T-shirt. JUDGEMENT.
     "leggings": (45, 1),
+    # v30.5. Long sleeve tops and tanks: Ecobalyse's T-shirt. Sweatpants: its
+    # Pantalon. Nearest products, so JUDGEMENT on the fit.
+    "long-sleeve": (45, 1),
+    "tank":     (45, 1),
+    "sweatpants": (70, 3),
 }
 # No garment type picked: total wears of the average garment in Laitala &
 # Klepp 2020 (~35 worn so far + ~46 expected). Washes can't be given without a type.

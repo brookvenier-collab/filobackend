@@ -63,7 +63,8 @@ _GROUP_WORD = {"t-shirt": "t-shirt", "top": "top", "shirt": "shirt",
                "hoodie": "hoodie", "jeans": "jeans", "trousers": "trousers",
                "shorts": "shorts", "leggings": "leggings", "skirt": "skirt",
                "dress": "dress", "jacket": "jacket", "blazer": "blazer",
-               "coat": "coat"}
+               "coat": "coat", "long-sleeve": "long sleeve top", "tank": "tank top",
+               "sweatpants": "sweatpants"}
 
 
 def _dominant(matched):

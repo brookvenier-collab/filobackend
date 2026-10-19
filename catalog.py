@@ -123,6 +123,19 @@ GARMENT_GROUPS = {
                  ["jeans", "shorts", "jacket", "dress", "skirt", "leggings"]),
     "shorts":   (["shorts", "short"], ["dress", "top", "shirt", "sleeve", "jacket"]),
     "leggings": (["leggings", "legging", "tights"], ["dress", "top", "jacket"]),
+    # v30.5: more of what people actually shop for.
+    "long-sleeve": (["long sleeve", "long-sleeve", "longsleeve"],
+                    ["dress", "jacket", "sweater", "hoodie", "cardigan", "sweatshirt",
+                     "coat", "button", "jumpsuit", "bodysuit"]),
+    "tank":     (["tank", "cami", "camisole", "singlet"],
+                 ["dress", "jumpsuit", "swim", "bikini", "set"]),
+    "sweatpants": (["sweatpants", "sweatpant", "sweat pants", "joggers", "jogger",
+                    "track pants", "trackpants", "lounge pants"],
+                   ["jeans", "shorts", "dress", "skirt", "leggings", "hoodie", "jacket", "set"]),
+    "bag":      (["bag", "handbag", "tote", "crossbody", "purse", "clutch", "satchel",
+                  "pochette", "backpack"],
+                 ["dress", "shoe", "shoes", "boot", "boots", "wallet", "keychain", "charm",
+                  "dust bag", "garment bag", "laundry"]),
 }
 # What shoppers type -> which group it belongs to. Checked longest first, so
 # "leather jacket" and "t-shirt" resolve before "jacket" and "shirt".
@@ -133,6 +146,11 @@ _CATEGORY_ALIASES = {
     "knit": "sweater", "pants": "trousers", "trouser": "trousers",
     "slacks": "trousers", "jean": "jeans", "denim": "jeans",
     "trench": "coat", "parka": "coat", "overcoat": "coat",
+    "long sleeve": "long-sleeve", "longsleeve": "long-sleeve",
+    "tank top": "tank", "cami": "tank", "camisole": "tank",
+    "joggers": "sweatpants", "jogger": "sweatpants", "track pants": "sweatpants",
+    "sweat pants": "sweatpants", "sweatpants": "sweatpants", "sweatpant": "sweatpants",
+    "handbag": "bag", "tote": "bag", "purse": "bag", "crossbody": "bag",
 }
 
 
@@ -144,7 +162,7 @@ TYPICAL_PRICE = {
     "t-shirt": 40, "top": 50, "blouse": 70, "shirt": 70, "sweater": 100,
     "cardigan": 100, "hoodie": 80, "jeans": 100, "trousers": 100, "shorts": 50,
     "leggings": 60, "skirt": 70, "dress": 120, "jacket": 160, "blazer": 200,
-    "coat": 250,
+    "coat": 250, "long-sleeve": 50, "tank": 35, "sweatpants": 80, "bag": 250,
 }
 TYPICAL_LEATHER_PRICE = 350   # leather jackets and coats sit well above cloth ones
 # A new leather jacket or coat priced under this, from a shop Filo doesn't know,
@@ -373,6 +391,22 @@ def colour_match(item, colour):
     text = _describe(item).lower()
     return any(re.search(r"(?<![a-z])" + re.escape(w) + r"(?![a-z])", text)
                for w in COLOUR_WORDS.get(c, [c]))
+
+
+def title_names_other_colour(item, colour):
+    """v30.5. The listing's own title names a different colour and not this
+    one ("Navy Cotton Tee" for a black pick). Dark navy photographs as black,
+    so for that pair the title is the better witness than the photo."""
+    c = (colour or "").lower().strip()
+    title = (item.get("name") or item.get("title") or "").lower()
+    if not c or not title:
+        return False
+    def says(words):
+        return any(re.search(r"(?<![a-z])" + re.escape(w) + r"(?![a-z])", title) for w in words)
+    if says(COLOUR_WORDS.get(c, [c])):
+        return False
+    others = [k for k in COLOUR_WORDS if k != c and not set(COLOUR_WORDS[k]) & set(COLOUR_WORDS.get(c, [c]))]
+    return any(says(COLOUR_WORDS[k]) for k in others)
 
 
 def look_match(item, look):
@@ -663,6 +697,8 @@ def search_alternatives(category=None, name=None, price=None,
             # hoodie was shown as grey that way. Words only count with no photo.
             verdict = seen.get(r.get("image_url"))
             r["colour_match"] = bool(r["colour_match"] if verdict is None else verdict)
+            if title_names_other_colour(r, colour):
+                r["colour_match"] = False
             r["colour_read"] = _colour.describe(r.get("image_url"))
         matches = [r for r in kept if r["colour_match"]]
         if matches:

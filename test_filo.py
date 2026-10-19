@@ -1488,6 +1488,28 @@ def test_v30_3_every_fibre_on_the_tag():
           (6.1, "64% cotton, 36% polyester"))
 
 
+def test_v30_5_more_types_and_true_colour():
+    import catalog, colour, value
+    print("\n=== v30.5: sweatpants, long sleeve, tank, bag; black means black ===")
+    for typed, group in [("women's sweatpants", "sweatpants"), ("joggers", "sweatpants"),
+                         ("women's long sleeve", "long-sleeve"), ("women's tank", "tank"),
+                         ("bag", "bag"), ("women's trousers", "trousers"), ("women's t-shirt", "t-shirt")]:
+        check(f"{typed!r} is {group}", catalog.garment_group(typed), group)
+    check("joggers come back for sweatpants", catalog.same_garment("Organic Cotton Joggers", "sweatpants"), True)
+    check("wool trousers don't", catalog.same_garment("Wool Trousers", "sweatpants"), False)
+    check("a long sleeve tee is a long sleeve", catalog.same_garment("Long Sleeve Tee", "long sleeve"), True)
+    check("a hoodie isn't", catalog.same_garment("Long Sleeve Hoodie", "long sleeve"), False)
+    d = fabric.quality_detail("80% cotton 20% polyester")
+    for c in ("women's sweatpants", "women's long sleeve", "women's tank"):
+        v = value.assess({"composition": "80% cotton 20% polyester", "category": c}, d, d["score"])
+        check(f"{c} gets a fair price", v is not None and v["fair_high"] > v["fair_low"], True)
+    check("a navy-titled piece is not black", catalog.title_names_other_colour({"name": "Navy Cotton Tee"}, "black"), True)
+    check("a black one is", catalog.title_names_other_colour({"name": "Black Cotton Tee"}, "black"), False)
+    check("an untitled colour defers to the photo", catalog.title_names_other_colour({"name": "Organic Tee"}, "black"), False)
+    check("deep navy pixels read navy", colour.name_pixel(20, 25, 60), "navy")
+    check("black pixels read black", colour.name_pixel(15, 15, 18), "black")
+
+
 if __name__ == "__main__":
     test_parser()
     test_scoring()
@@ -1526,6 +1548,7 @@ if __name__ == "__main__":
     test_v25_colour_from_the_photo()
     test_v30_fair_price()
     test_v30_3_every_fibre_on_the_tag()
+    test_v30_5_more_types_and_true_colour()
     print()
     if FAILS:
         print(f"{len(FAILS)} FAILURES")

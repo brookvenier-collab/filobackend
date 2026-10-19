@@ -78,7 +78,8 @@ _PLURAL = {"t-shirt": "t-shirts", "top": "tops", "blouse": "blouses",
            "hoodie": "hoodies", "jeans": "jeans", "trousers": "trousers",
            "shorts": "shorts", "leggings": "leggings", "skirt": "skirts",
            "dress": "dresses", "jacket": "jackets", "blazer": "blazers",
-           "coat": "coats", "bag": "bags"}
+           "coat": "coats", "bag": "bags", "long-sleeve": "long sleeve tops",
+           "tank": "tank tops", "sweatpants": "sweatpants"}
 
 
 def group_for(category, name=None):
@@ -423,7 +424,9 @@ def _what(matched, group):
     lead = "leather" if key[0] == "leather" else (
         f"100% {key[0]}" if pct >= 100 else f"mostly {key[0]}")
     noun = {"jeans": "pair of jeans", "trousers": "pair of trousers",
-            "shorts": "pair of shorts", "leggings": "pair of leggings"}.get(group, group)
+            "shorts": "pair of shorts", "leggings": "pair of leggings",
+            "sweatpants": "pair of sweatpants", "long-sleeve": "long sleeve top",
+            "tank": "tank top"}.get(group, group)
     if noun.startswith("pair"):
         return f"a pair of {lead} {group}"
     return f"a {lead} {noun}"

@@ -53,6 +53,10 @@ def name_pixel(r, g, b):
     """One pixel -> a plain colour name."""
     h, s, v = colorsys.rgb_to_hsv(r / 255.0, g / 255.0, b / 255.0)
     h *= 360
+    # v30.5: a deep, clearly blue dark is navy, not black ("black" picks were
+    # coming back navy). Real black has almost no colour in it.
+    if 200 <= h < 255 and s >= 0.50 and v >= 0.12:
+        return "navy" if v < 0.45 else "blue"
     if v < 0.16 or (v < 0.30 and s < 0.35):
         return "black"
     if s < 0.075:
