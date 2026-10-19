@@ -303,6 +303,30 @@ def shopper_lines(composition, category, brand) -> List[str]:
         return []
 
 
+def admin_summary(rows: Optional[List[tuple]] = None) -> Dict[str, Any]:
+    """For Brooklyn: how much has come in, and what each group of pieces is
+    saying, with how far it is from the floor. Counts only, never a session."""
+    rows = _rows() if rows is None else rows
+    cells = build_cells(rows)
+    totals = {"notes": 0, "wear_checks": 0}
+    for kind, *_ in rows:
+        totals["notes" if kind == "note" else "wear_checks"] += 1
+    groups = []
+    for (brand, garment, fibre), c in cells.items():
+        shoppers = len(c["note_all"] | c["wear_all"][30] | c["wear_all"][90])
+        groups.append({
+            "brand": brand, "garment": garment, "fibre": fibre,
+            "shoppers": shoppers,
+            "notes": {k: len(v) for k, v in sorted(c["notes"].items(), key=lambda kv: -len(kv[1]))},
+            "wear_30": {k: len(v) for k, v in c["wear"][30].items()},
+            "wear_90": {k: len(v) for k, v in c["wear"][90].items()},
+            "showing": lines_for({(brand, garment, fibre): c}, brand, garment, fibre),
+            "needs_for_a_line": max(0, NOTE_FLOOR - shoppers),
+        })
+    groups.sort(key=lambda g: -g["shoppers"])
+    return {"floor": NOTE_FLOOR, "totals": totals, "groups": groups[:200]}
+
+
 def config() -> Dict[str, Any]:
     """What the app needs to show the chips and the check-in."""
     return {

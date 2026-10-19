@@ -612,6 +612,13 @@ def post_wear(w: voices.WearIn):
     return {"ok": voices.record_wear(w)}
 
 
+@app.get("/internal/shelf/voices")
+def shelf_voices(x_filo_admin: Optional[str] = Header(default=None)):
+    """What shoppers have said so far, by kind of piece. Admin only."""
+    _require_admin(x_filo_admin)
+    return voices.admin_summary()
+
+
 # ----------------------------------------------------------------- home card admin
 # Open /admin/home in any browser, unlock with ADMIN_TOKEN, tap a card, pick a
 # photo, Save. See homecard.py.
