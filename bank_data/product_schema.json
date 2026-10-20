@@ -1,0 +1,824 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://filoquality.com/schemas/product.json",
+  "title": "Filo product",
+  "description": "One specific garment in Filo's bank. Product first: brands never pass their scores to products. Field names follow schema.org Product and Offer where they exist. Every consequential fact is a Fact object that points to an entry in the evidence ledger. Unknown is a value, not a gap: never fill it with a guess.",
+  "type": "object",
+  "required": [
+    "product_id",
+    "brand_id",
+    "name",
+    "category",
+    "product_url",
+    "variants",
+    "status",
+    "first_seen",
+    "last_checked"
+  ],
+  "$defs": {
+    "Fact": {
+      "type": "object",
+      "description": "A single claim about this product. value may be null when status is unknown.",
+      "required": [
+        "status"
+      ],
+      "properties": {
+        "value": {},
+        "unit": {
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "confirmed",
+            "from_photo",
+            "unknown",
+            "conflicts"
+          ]
+        },
+        "source_type": {
+          "enum": [
+            "verified",
+            "brand_reported",
+            "customer_reported",
+            "inferred"
+          ]
+        },
+        "evidence_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "IDs in the evidence ledger"
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "scope": {
+          "enum": [
+            "this_variant",
+            "this_style",
+            "this_style_all_colours",
+            "brand_wide"
+          ],
+          "description": "What the evidence actually covers. brand_wide evidence never confirms a product-level claim on its own."
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "unknown"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "value": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "enum": [
+                  "confirmed",
+                  "from_photo",
+                  "conflicts"
+                ]
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "value",
+              "source_type",
+              "evidence_ids",
+              "scope"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "from_photo"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "source_type": {
+                "const": "inferred"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "Money": {
+      "type": "object",
+      "required": [
+        "amount",
+        "currency"
+      ],
+      "properties": {
+        "amount": {
+          "type": "number",
+          "minimum": 0
+        },
+        "currency": {
+          "type": "string",
+          "pattern": "^[A-Z]{3}$"
+        }
+      }
+    },
+    "SizeMeasurement": {
+      "type": "object",
+      "description": "Garment measurements for one size, from the brand's chart or product page. Body measurement charts are stored separately and never mixed with garment measurements.",
+      "required": [
+        "size_label",
+        "size_system"
+      ],
+      "properties": {
+        "size_label": {
+          "type": "string"
+        },
+        "size_system": {
+          "enum": [
+            "US",
+            "CA",
+            "UK",
+            "EU",
+            "IT",
+            "FR",
+            "JP",
+            "KR",
+            "AU",
+            "alpha",
+            "waist_inseam",
+            "brand_specific"
+          ]
+        },
+        "measurement_type": {
+          "enum": [
+            "garment",
+            "body"
+          ]
+        },
+        "chest_width_cm": {
+          "$ref": "#/$defs/Fact"
+        },
+        "shoulder_width_cm": {
+          "$ref": "#/$defs/Fact"
+        },
+        "body_length_cm": {
+          "$ref": "#/$defs/Fact"
+        },
+        "sleeve_length_cm": {
+          "$ref": "#/$defs/Fact"
+        },
+        "waist_cm": {
+          "$ref": "#/$defs/Fact"
+        },
+        "hip_cm": {
+          "$ref": "#/$defs/Fact"
+        },
+        "thigh_cm": {
+          "$ref": "#/$defs/Fact"
+        },
+        "rise_cm": {
+          "$ref": "#/$defs/Fact"
+        },
+        "inseam_cm": {
+          "$ref": "#/$defs/Fact"
+        },
+        "leg_opening_cm": {
+          "$ref": "#/$defs/Fact"
+        }
+      }
+    },
+    "Variant": {
+      "type": "object",
+      "description": "One colour and size combination, matching schema.org Offer. Price can be missing on a draft; a product without a current price never shows.",
+      "required": [
+        "variant_id",
+        "colour",
+        "size_label",
+        "availability",
+        "last_checked"
+      ],
+      "properties": {
+        "variant_id": {
+          "type": "string"
+        },
+        "sku": {
+          "type": "string"
+        },
+        "gtin": {
+          "type": "string",
+          "description": "Links to Filo's v29 barcode database when present"
+        },
+        "colour": {
+          "type": "string",
+          "description": "As the brand names it"
+        },
+        "colour_family": {
+          "type": "string",
+          "description": "Filo's normalized colour, from colour.py"
+        },
+        "size_label": {
+          "type": "string"
+        },
+        "size_system": {
+          "type": "string"
+        },
+        "price": {
+          "$ref": "#/$defs/Money"
+        },
+        "sale_price": {
+          "$ref": "#/$defs/Money"
+        },
+        "price_cad": {
+          "type": "number"
+        },
+        "price_usd": {
+          "type": "number"
+        },
+        "fx_rate_id": {
+          "type": "string",
+          "description": "The dated FX record used for conversion"
+        },
+        "availability": {
+          "enum": [
+            "in_stock",
+            "low_stock",
+            "out_of_stock",
+            "preorder",
+            "made_to_order",
+            "unknown"
+          ]
+        },
+        "ships_to": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "CA",
+              "US"
+            ]
+          }
+        },
+        "last_checked": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    }
+  },
+  "properties": {
+    "product_id": {
+      "type": "string"
+    },
+    "brand_id": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "style_code": {
+      "type": "string"
+    },
+    "product_version": {
+      "type": "string",
+      "description": "Changes when the page shows a changed composition, construction or fit. Old facts stay linked to the old version."
+    },
+    "category": {
+      "enum": [
+        "t_shirt",
+        "long_sleeve",
+        "tank",
+        "shirt",
+        "knitwear",
+        "cardigan",
+        "sweatshirt",
+        "denim",
+        "trousers",
+        "skirt",
+        "dress",
+        "outerwear",
+        "leather_outerwear"
+      ]
+    },
+    "subcategory": {
+      "type": "string"
+    },
+    "gender_target": {
+      "enum": [
+        "women",
+        "men",
+        "unisex"
+      ]
+    },
+    "product_url": {
+      "type": "string",
+      "format": "uri"
+    },
+    "retailer": {
+      "type": "string",
+      "description": "Where the URL sells it. Brand site, stockist or resale platform."
+    },
+    "is_resale_listing": {
+      "type": "boolean"
+    },
+    "resale": {
+      "type": "object",
+      "description": "Only for resale listings. Each listing is its own item.",
+      "properties": {
+        "condition": {
+          "type": "string"
+        },
+        "alterations": {
+          "type": "string"
+        },
+        "repairs": {
+          "type": "string"
+        },
+        "authentication": {
+          "type": "string"
+        },
+        "label_photo": {
+          "type": "boolean"
+        },
+        "composition_label_visible": {
+          "type": "boolean"
+        }
+      }
+    },
+    "images": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "front",
+              "back",
+              "detail",
+              "label",
+              "on_model",
+              "flat"
+            ]
+          },
+          "licence_note": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "season": {
+      "type": "string"
+    },
+    "materials": {
+      "type": "object",
+      "properties": {
+        "composition": {
+          "$ref": "#/$defs/Fact",
+          "description": "value: [{fibre, percent}], parsed by Filo's fabric parser, adds to about 100"
+        },
+        "fibre_origin": {
+          "$ref": "#/$defs/Fact"
+        },
+        "mill": {
+          "$ref": "#/$defs/Fact"
+        },
+        "fabric_structure": {
+          "$ref": "#/$defs/Fact",
+          "description": "jersey, rib, interlock, twill, poplin, fine-gauge knit, etc."
+        },
+        "fabric_weight": {
+          "$ref": "#/$defs/Fact",
+          "description": "unit gsm or oz"
+        },
+        "yarn": {
+          "$ref": "#/$defs/Fact"
+        },
+        "knit_gauge": {
+          "$ref": "#/$defs/Fact"
+        },
+        "elastane_percent": {
+          "$ref": "#/$defs/Fact"
+        },
+        "lining": {
+          "$ref": "#/$defs/Fact"
+        },
+        "trims_hardware": {
+          "$ref": "#/$defs/Fact"
+        },
+        "finish_dye": {
+          "$ref": "#/$defs/Fact"
+        },
+        "certifications": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "licence": {
+                "type": "string"
+              },
+              "scope": {
+                "type": "string"
+              },
+              "valid_until": {
+                "type": "string",
+                "format": "date"
+              },
+              "covers_this_product": {
+                "$ref": "#/$defs/Fact"
+              }
+            }
+          }
+        }
+      }
+    },
+    "construction": {
+      "type": "object",
+      "properties": {
+        "country_of_assembly": {
+          "$ref": "#/$defs/Fact"
+        },
+        "factory": {
+          "$ref": "#/$defs/Fact"
+        },
+        "seam_types": {
+          "$ref": "#/$defs/Fact"
+        },
+        "stitch_density": {
+          "$ref": "#/$defs/Fact"
+        },
+        "seam_allowance": {
+          "$ref": "#/$defs/Fact"
+        },
+        "reinforcement": {
+          "$ref": "#/$defs/Fact"
+        },
+        "collar_or_neck_finish": {
+          "$ref": "#/$defs/Fact"
+        },
+        "closures": {
+          "$ref": "#/$defs/Fact"
+        },
+        "pocket_bags": {
+          "$ref": "#/$defs/Fact"
+        },
+        "care": {
+          "$ref": "#/$defs/Fact"
+        },
+        "shrinkage_guidance": {
+          "$ref": "#/$defs/Fact"
+        },
+        "repair_options": {
+          "$ref": "#/$defs/Fact"
+        }
+      }
+    },
+    "fit": {
+      "type": "object",
+      "description": "Fit is its own discipline. Measured facts and visual estimates are never mixed. Fit is never promised from a photo alone.",
+      "properties": {
+        "fit_tags": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "tag": {
+                "type": "string",
+                "description": "Concept ID from the ontology silhouette list"
+              },
+              "fact": {
+                "$ref": "#/$defs/Fact"
+              }
+            }
+          }
+        },
+        "measurements_by_size": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SizeMeasurement"
+          }
+        },
+        "size_chart_url": {
+          "type": "string"
+        },
+        "model": {
+          "type": "object",
+          "properties": {
+            "height_cm": {
+              "$ref": "#/$defs/Fact"
+            },
+            "size_worn": {
+              "$ref": "#/$defs/Fact"
+            },
+            "disclosed_measurements": {
+              "$ref": "#/$defs/Fact"
+            }
+          }
+        },
+        "ease": {
+          "type": "object",
+          "description": "Room beyond the body, where measurements allow it to be worked out",
+          "properties": {
+            "bust": {
+              "$ref": "#/$defs/Fact"
+            },
+            "waist": {
+              "$ref": "#/$defs/Fact"
+            },
+            "hips": {
+              "$ref": "#/$defs/Fact"
+            },
+            "shoulders": {
+              "$ref": "#/$defs/Fact"
+            },
+            "thighs": {
+              "$ref": "#/$defs/Fact"
+            }
+          }
+        },
+        "rise": {
+          "$ref": "#/$defs/Fact"
+        },
+        "intended_length": {
+          "$ref": "#/$defs/Fact",
+          "description": "cropped, hip, mid-thigh, etc."
+        },
+        "neckline": {
+          "$ref": "#/$defs/Fact"
+        },
+        "sleeve": {
+          "$ref": "#/$defs/Fact"
+        },
+        "stretch_and_recovery": {
+          "$ref": "#/$defs/Fact"
+        },
+        "drape": {
+          "$ref": "#/$defs/Fact"
+        },
+        "opacity": {
+          "$ref": "#/$defs/Fact",
+          "description": "Needs customer_reported or better. Never inferred from fabric weight alone."
+        },
+        "customer_fit_patterns": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "pattern": {
+                "type": "string",
+                "description": "e.g. runs small, roomy through the chest"
+              },
+              "observations": {
+                "type": "integer"
+              },
+              "source": {
+                "type": "string"
+              },
+              "most_recent": {
+                "type": "string",
+                "format": "date"
+              }
+            }
+          }
+        },
+        "known_limits": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "e.g. no garment chest measurement published; sizing inconsistent per reviews"
+        }
+      }
+    },
+    "people_and_sourcing": {
+      "type": "object",
+      "properties": {
+        "supplier_disclosure": {
+          "$ref": "#/$defs/Fact"
+        },
+        "audit": {
+          "$ref": "#/$defs/Fact"
+        },
+        "wage_evidence": {
+          "$ref": "#/$defs/Fact"
+        },
+        "grievance_process": {
+          "$ref": "#/$defs/Fact"
+        },
+        "remediation_reporting": {
+          "$ref": "#/$defs/Fact"
+        },
+        "traceability_level": {
+          "$ref": "#/$defs/Fact"
+        }
+      }
+    },
+    "animal_welfare": {
+      "type": "object",
+      "description": "Only for animal-derived materials. Tannery certification alone is never humane-slaughter proof.",
+      "properties": {
+        "species": {
+          "$ref": "#/$defs/Fact"
+        },
+        "origin": {
+          "$ref": "#/$defs/Fact"
+        },
+        "farm_processor_traceability": {
+          "$ref": "#/$defs/Fact"
+        },
+        "mulesing_free": {
+          "$ref": "#/$defs/Fact"
+        },
+        "down_standard": {
+          "$ref": "#/$defs/Fact"
+        },
+        "tannery_audit": {
+          "$ref": "#/$defs/Fact"
+        },
+        "slaughter_transport_evidence": {
+          "$ref": "#/$defs/Fact"
+        },
+        "gaps": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "durability_evidence": {
+      "type": "object",
+      "properties": {
+        "lab_tests": {
+          "$ref": "#/$defs/Fact"
+        },
+        "pilling_abrasion": {
+          "$ref": "#/$defs/Fact"
+        },
+        "seam_strength": {
+          "$ref": "#/$defs/Fact"
+        },
+        "colourfastness": {
+          "$ref": "#/$defs/Fact"
+        },
+        "wash_testing": {
+          "$ref": "#/$defs/Fact"
+        },
+        "warranty": {
+          "$ref": "#/$defs/Fact"
+        },
+        "review_patterns": {
+          "$ref": "#/$defs/Fact"
+        }
+      }
+    },
+    "buying": {
+      "type": "object",
+      "properties": {
+        "return_policy": {
+          "$ref": "#/$defs/Fact"
+        },
+        "shipping_note": {
+          "type": "string"
+        },
+        "duties_note": {
+          "type": "string"
+        }
+      }
+    },
+    "variants": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/Variant"
+      }
+    },
+    "filo": {
+      "type": "object",
+      "properties": {
+        "filo_score": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Filo's existing score, computed by the existing code. Unchanged."
+        },
+        "fair_price_verdict": {
+          "type": "string",
+          "description": "From value.py"
+        },
+        "quality_profile": {
+          "type": "object",
+          "description": "The six rubric dimensions in D_rules/quality_rubric.json, each 0 to 4 or unknown",
+          "additionalProperties": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 4
+              },
+              {
+                "const": "unknown"
+              }
+            ]
+          }
+        },
+        "style_fit": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 4
+            },
+            {
+              "const": "unknown"
+            }
+          ]
+        },
+        "decision": {
+          "enum": [
+            "pass",
+            "conditional",
+            "hold",
+            "insufficient_evidence"
+          ]
+        },
+        "decision_reason": {
+          "type": "string"
+        },
+        "missing_evidence": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "decided_by": {
+          "enum": [
+            "brooklyn"
+          ],
+          "description": "Only Brooklyn confirms a decision"
+        },
+        "decided_on": {
+          "type": "string",
+          "format": "date"
+        },
+        "recheck_on": {
+          "type": "string",
+          "format": "date"
+        },
+        "is_unique_find": {
+          "type": "boolean"
+        },
+        "is_independent_label": {
+          "type": "boolean"
+        },
+        "standards": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Filo Standards this product sits in"
+        },
+        "studio_note": {
+          "type": "string"
+        }
+      }
+    },
+    "status": {
+      "enum": [
+        "draft",
+        "in_review",
+        "live",
+        "hidden_stale",
+        "hidden_out_of_stock",
+        "retired"
+      ]
+    },
+    "first_seen": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "last_checked": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

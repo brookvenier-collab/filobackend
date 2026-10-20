@@ -1,0 +1,82 @@
+{
+ "about": "Filo's first-wave approved brands, picked from the evidence in seed_brands.json on 20 Oct 2026. Brooklyn asked Claude to go with these. Approving a brand only lets its products be considered; each product still needs a pass or conditional decision confirmed by Brooklyn.",
+ "approved_count": 23,
+ "by_category": {
+  "tees": [
+   "Asket",
+   "Kotn",
+   "Colorful Standard",
+   "Community Clothing",
+   "Armedangels",
+   "Lady White Co.",
+   "Sunspel"
+  ],
+  "knitwear": [
+   "John Smedley",
+   "Jamieson's of Shetland",
+   "L'Envers",
+   "Asket",
+   "Peregrine",
+   "&Daughter",
+   "Babaà"
+  ],
+  "denim": [
+   "Nudie Jeans",
+   "Naked & Famous Denim",
+   "MUD Jeans",
+   "Kuyichi",
+   "Hiut Denim",
+   "Blackhorse Lane Ateliers",
+   "Asket",
+   "Armedangels"
+  ],
+  "trousers": [
+   "Asket",
+   "Community Clothing",
+   "Armedangels",
+   "Kotn",
+   "Hessnatur",
+   "Another Tomorrow"
+  ],
+  "outerwear": [
+   "Asket",
+   "Finisterre",
+   "Another Tomorrow",
+   "Peregrine",
+   "Kowtow",
+   "Community Clothing",
+   "Armedangels"
+  ]
+ },
+ "why": {
+  "&Daughter": "Directory: made in the UK and Ireland with mills in Ireland and Scotland. Not in V1. Only 6 reviews, some pilling complaints, so screen carefully.",
+  "Another Tomorrow": "High evidence: traceability-led womenswear; garment-level supply-chain disclosure.",
+  "Armedangels": "High evidence: certified organic and recycled ranges. Made in Portugal, Tunisia, Romania, Turkey, Germany. Trustpilot 4.4 (1,808). Good On You: Great.",
+  "Asket": "Very high evidence in Research V1: product-level supply chain, cost and footprint disclosure; EU manufacturing for most cut-and-sew. Trustpilot 2.6 (149) mostly on returns and some lines.",
+  "Babaà": "Directory: every item made in Spain from Spanish wool and cotton. Not in V1. Only 1 review.",
+  "Blackhorse Lane Ateliers": "High evidence: London denim atelier, local production, repair focus.",
+  "Colorful Standard": "High evidence; made in its own factory in Barcelos, Portugal. Good On You: Good.",
+  "Community Clothing": "High evidence: every garment made in the UK with 28 partner factories.",
+  "Finisterre": "High evidence: repair and material responsibility programs. Check each product's fibre: many technical pieces are synthetic.",
+  "Hessnatur": "High evidence: natural-material focus, mostly made in Europe. Trustpilot 3.7 (2,579). Good On You: Good.",
+  "Hiut Denim": "High evidence: Welsh denim maker with local manufacturing.",
+  "Jamieson's of Shetland": "High evidence: heritage Shetland wool, Scottish production. Verify animal welfare and yarn traceability.",
+  "John Smedley": "High evidence: long-established UK fine-gauge knitwear manufacturer.",
+  "Kotn": "High evidence: direct relationships with cotton farmers in Egypt, published supply-chain approach.",
+  "Kowtow": "High evidence: certified organic cotton and supply-chain transparency. Womenswear.",
+  "Kuyichi": "High evidence: organic and recycled denim focus. Trustpilot 4.4 (61). Good On You: Great.",
+  "L'Envers": "High evidence: made to order in family-owned Spanish ateliers; non-mulesed wool. Primarily womenswear.",
+  "Lady White Co.": "High evidence: Los Angeles-made basics focused on fabric and construction. Labour traceability upstream is limited.",
+  "MUD Jeans": "High evidence: circular denim, recycled cotton, published reporting.",
+  "Naked & Famous Denim": "High evidence: cut and sewn in Canada from Japanese denim. A Canadian brand for Filo's home market.",
+  "Nudie Jeans": "Very high evidence: published suppliers, free repairs, resale. Good On You: Great. Trustpilot 2.0 (223) mostly sizing, repair waits and returns.",
+  "Peregrine": "High evidence: family-run British maker; British wool, made in Manchester.",
+  "Sunspel": "Directory: T-shirts made in its own factory in Long Eaton, England. Not in V1, so screen products first. Trustpilot 1.7 (108) is service, not quality."
+ },
+ "left_out_for_now": {
+  "People Tree": "UK business in liquidation since Sept 2023",
+  "18 Waits": "Primarily menswear",
+  "Patagonia, Eileen Fisher": "Strong evidence but less aligned with Filo's style direction; easy to add later",
+  "The RealReal": "Resale source; phase in after the first 120 new products"
+ }
+}

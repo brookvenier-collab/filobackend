@@ -30,6 +30,8 @@ import homecard
 import breakdown
 import value
 import voices
+import bank
+import bank_seed
 
 app = FastAPI(title="Filo AI")
 
@@ -44,6 +46,10 @@ def _startup():
     voices.init_schema()
     products.init_schema()
     products.purge_votes()
+    # The Stylist's bank (stage 1): tables and starter data only. Nothing reads them yet.
+    if bank.init_schema():
+        bank_seed.seed()
+        bank.purge_old_brief_text()
     fund.start_daily_thread()
 
 app.add_middleware(

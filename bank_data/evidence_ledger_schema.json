@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://filoquality.com/schemas/evidence.json",
+  "title": "Filo evidence ledger entry",
+  "description": "One piece of evidence behind one or more claims. Every Fact in a product or brand record points here. This is what makes every recommendation auditable: any sentence the stylist says about a product must resolve to entries in this ledger.",
+  "type": "object",
+  "required": ["evidence_id", "claim", "subject_type", "subject_id", "source_url", "source_type", "checked_at", "scope", "confidence", "status"],
+  "properties": {
+    "evidence_id": {"type": "string"},
+    "claim": {"type": "string", "description": "The claim in plain words, e.g. 'Composition is 100% cotton'"},
+    "field": {"type": "string", "description": "Path of the Fact it supports, e.g. materials.composition"},
+    "subject_type": {"enum": ["product", "variant", "brand", "factory", "certificate", "listing"]},
+    "subject_id": {"type": "string"},
+    "source_url": {"type": "string", "format": "uri"},
+    "source_kind": {"enum": ["brand_product_page", "brand_policy_page", "brand_report", "retailer_page", "structured_data", "affiliate_feed", "certificate_registry", "independent_audit", "lab_test", "press", "customer_reviews", "filo_shopper_notes", "filo_scan_database", "photo", "ai_tagger", "brooklyn_manual"]},
+    "source_type": {"enum": ["verified", "brand_reported", "customer_reported", "inferred"], "description": "verified = independent evidence covering this exact claim and scope. brand_reported = the brand says it. customer_reported = buyers say it. inferred = derived by Filo (photo, AI tagger), not verified."},
+    "quote": {"type": "string", "description": "The short sentence or data field the claim came from. Under 40 words."},
+    "sample_size": {"type": "integer", "description": "Required for customer_reported"},
+    "scope": {"enum": ["this_variant", "this_style", "this_style_all_colours", "brand_wide", "facility", "certificate_scope"]},
+    "confidence": {"type": "number", "minimum": 0, "maximum": 1, "description": "Set by the rules in D_rules/ranking_rules.json, not by the language model"},
+    "checked_at": {"type": "string", "format": "date-time"},
+    "valid_until": {"type": "string", "format": "date", "description": "For certificates and anything with an expiry"},
+    "page_hash": {"type": "string", "description": "Hash of the source content when read, to detect changes"},
+    "status": {"enum": ["current", "stale", "source_failed", "superseded", "disputed"]},
+    "superseded_by": {"type": "string"},
+    "retrieval": {"type": "object", "properties": {"method": {"enum": ["manual", "shopify_json", "schema_org", "affiliate_feed", "page_text", "vision"]}, "attempts": {"type": "integer"}, "last_error": {"type": "string"}}}
+  },
+  "allOf": [
+    {"if": {"properties": {"source_type": {"const": "customer_reported"}}}, "then": {"required": ["sample_size"]}},
+    {"if": {"properties": {"source_type": {"const": "verified"}}}, "then": {"properties": {"source_kind": {"enum": ["certificate_registry", "independent_audit", "lab_test", "brooklyn_manual"]}}}}
+  ]
+}

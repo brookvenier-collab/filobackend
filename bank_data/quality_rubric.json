@@ -1,0 +1,41 @@
+{
+  "about": "How Filo judges brands and products in the bank. From FILO Quality Fashion Brand Research V1 (sections 01, 04, 05) and the 500 Style-Led Discovery Bank V2 (section 02), both 20 Oct 2026. This is the evidence profile stored alongside Filo's existing 0-100 score. It does not replace or change that score.",
+  "principles": [
+    "Higher price, natural fibre, fabric weight, 'made in Europe' or a sustainability certification does not by itself prove durability, fair labour or humane animal treatment. Evidence must be attached to the product, factory, material or supply-chain stage it covers.",
+    "Keep 'unknown' separate from 'failed'.",
+    "A brand never scores high just because it is expensive, looks premium, uses natural fibres or says it is sustainable.",
+    "Style fit and quality evidence are separate scores.",
+    "Product first: one good product never makes a whole brand look good, and one weak product never sinks a whole brand.",
+    "Brand self-description is a lead, not proof. Leather Working Group covers tanneries, not humane slaughter. The RealReal and other resale sites are judged listing by listing."
+  ],
+  "dimension_scale": {"0": "no evidence or poor", "1": "weak", "2": "partial", "3": "good", "4": "strong, independently supported", "unknown": "not yet checked or not disclosed"},
+  "dimensions": [
+    {"id": "material", "name": "Material quality and composition", "weight": 0.20, "capture": "Exact fibre percentages, fibre origin where disclosed, fabric weight (GSM or oz), yarn/knit/denim construction, elastane, finishing. Natural fibre alone is not a quality guarantee."},
+    {"id": "construction", "name": "Construction and durability", "weight": 0.25, "capture": "Close-up seam and stitch images, seam allowance, reinforced stress points, stitch consistency, hardware, lining, pilling and abrasion tests, shrinkage guidance, colourfastness, repairability. Price is a weak proxy."},
+    {"id": "manufacturing", "name": "Manufacturing transparency and worker rights", "weight": 0.20, "capture": "Named factories, country and process traceability, independent worker-rights assessments, grievance mechanisms, living-wage evidence, supplier disclosure. A code of conduct alone is not proof."},
+    {"id": "animal_welfare", "name": "Animal welfare and traceability (where relevant)", "weight": 0.15, "capture": "Leather and suede: species, origin, farm and processor traceability, transport and slaughter evidence, tannery practices, by-product claims. Wool, down, cashmere: mulesing policy, down standard, farm-level traceability. Not applicable to all-plant or synthetic pieces; reweight when not applicable."},
+    {"id": "repair_circularity", "name": "Repairability and circularity", "weight": 0.10, "capture": "Repair service, spare parts, take-back or resale programs, warranty."},
+    {"id": "value", "name": "Price-to-quality value", "weight": 0.10, "capture": "Filo's existing fair price verdict (value.py)."}
+  ],
+  "style_fit": {
+    "about": "Scored separately from quality, 0 to 4.",
+    "capture": "Distinctive design language, founder story, original silhouettes, editorial relevance, usefulness to a female-targeted style discovery experience."
+  },
+  "evidence_levels": {
+    "Very high": "Strong public evidence of product-level traceability or unusually detailed supply-chain disclosure. Still verify the SKU.",
+    "High": "Meaningful material, manufacturing, repair, certification or sourcing evidence; some gaps at item level.",
+    "Medium-high": "Potentially strong product or durability proposition, but transparency is mixed or range varies.",
+    "Medium": "Potentially strong product or durability proposition, but brand-wide transparency is mixed or range varies substantially.",
+    "Research lead": "Worth investigating for design, local production or niche expertise; not yet verified.",
+    "Marketplace": "Not a brand endorsement. Assess individual listings.",
+    "Not yet screened": "Only in the style-led list or the brand directory so far."
+  },
+  "research_status": ["priority_screen", "discovery_lead", "resale_source", "remove"],
+  "product_decision": {
+    "pass": "Meets Filo's rules with evidence attached. Can be shown by the stylist.",
+    "conditional": "Passes on what is known, with named gaps. Can be shown, with the gap stated.",
+    "hold": "A known problem or a must-check item is open. Not shown.",
+    "insufficient_evidence": "Not enough to judge. Not shown."
+  },
+  "price_rule": "Store the price exactly as displayed by the brand, in its original currency, with the product URL and date checked. Convert to CAD and USD with a dated, recorded FX rate. Keep shipping, tax and duties separate. Never present a stale price as current."
+}

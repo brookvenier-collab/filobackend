@@ -1,0 +1,1299 @@
+{
+ "about": "Filo's fashion ontology and knowledge graph: a graph of concepts, synonyms and local phrases. A phrase points to a concept ID, never stands alone as a string. From FILO Product Intelligence Specification V2, sections 02 to 04 and 09, plus Brooklyn's intelligence engine notes (20 Oct 2026). The phrases are seed hypotheses to test, not measured search volume. Brooklyn edits this in Filo Studio; replace assumptions with Filo's own anonymized query data after launch.",
+ "rule": "Map everyday phrases to concepts, but never treat concepts as the same when they need different evidence. Natural fibre is not automatically durable. Heavyweight is not automatically opaque. Made in Italy is not proof of fair labour or quality.",
+ "launch_languages": [
+  "en"
+ ],
+ "later_languages": [
+  "fr",
+  "es",
+  "it",
+  "de",
+  "pt",
+  "nl",
+  "sv",
+  "ja",
+  "ko"
+ ],
+ "language_rules": [
+  "Store the original text, detected language, normalized concepts, local synonyms and confidence.",
+  "Reply in the shopper's language.",
+  "Use locale-aware currency, sizing and spelling. Never translate size labels blindly; map the size system and show the brand's actual chart.",
+  "Keep culturally specific garment names and brand spellings. Handle typos and transliteration, but never auto-correct one brand into a different brand."
+ ],
+ "intents": [
+  {
+   "id": "find_garment",
+   "example": "Find me a boxy white tee.",
+   "extracts": "category, silhouette, colour"
+  },
+  {
+   "id": "fit_problem",
+   "example": "Jeans that fit my waist and hips.",
+   "extracts": "fit challenge, measurements or preferences only if volunteered, stretch and cut"
+  },
+  {
+   "id": "material_performance",
+   "example": "A warm wool coat that doesn't itch.",
+   "extracts": "fibre, function, feel, weather or use"
+  },
+  {
+   "id": "aesthetic_discovery",
+   "example": "Something like Khaite but less expensive.",
+   "extracts": "reference brand or aesthetic, price ceiling or relative budget, design cues"
+  },
+  {
+   "id": "quality_validation",
+   "example": "Is this sweater actually good quality?",
+   "extracts": "product or brand identity, composition, construction, evidence needs"
+  },
+  {
+   "id": "value_comparison",
+   "example": "Best quality jeans under $150.",
+   "extracts": "category, hard budget, quality threshold, value ranking"
+  },
+  {
+   "id": "ethics_sourcing",
+   "example": "Leather from a brand transparent about its supply chain.",
+   "extracts": "material acceptance, traceability threshold, worker and animal-welfare constraints"
+  },
+  {
+   "id": "occasion_wardrobe",
+   "example": "A jacket for office and weekends.",
+   "extracts": "occasion, versatility, season, formality"
+  },
+  {
+   "id": "secondhand",
+   "example": "Find vintage suede jackets in good condition.",
+   "extracts": "resale allowed, vintage, material, condition, budget, region"
+  },
+  {
+   "id": "image_reference",
+   "example": "Find something with this shape.",
+   "extracts": "visible attributes from the image only; never assume what can't be seen"
+  }
+ ],
+ "concepts": {
+  "category": [
+   {
+    "id": "t_shirt",
+    "en": [
+     "t-shirt",
+     "tee",
+     "tshirt",
+     "top"
+    ],
+    "fr": [
+     "t-shirt",
+     "tee-shirt"
+    ],
+    "es": [
+     "camiseta"
+    ],
+    "it": [
+     "t-shirt",
+     "maglietta"
+    ],
+    "de": [
+     "T-Shirt"
+    ],
+    "pt": [
+     "camiseta"
+    ],
+    "nl": [
+     "T-shirt"
+    ],
+    "sv": [
+     "t-shirt"
+    ]
+   },
+   {
+    "id": "long_sleeve",
+    "en": [
+     "long sleeve",
+     "long-sleeve top",
+     "longsleeve"
+    ],
+    "fr": [
+     "t-shirt manches longues"
+    ],
+    "es": [
+     "camiseta de manga larga"
+    ]
+   },
+   {
+    "id": "knitwear",
+    "en": [
+     "sweater",
+     "jumper",
+     "pullover",
+     "knit",
+     "cardigan"
+    ],
+    "fr": [
+     "pull",
+     "gilet"
+    ],
+    "es": [
+     "jersey",
+     "suéter",
+     "chaqueta de punto"
+    ],
+    "it": [
+     "maglione"
+    ],
+    "de": [
+     "Pullover",
+     "Wollpullover"
+    ],
+    "pt": [
+     "suéter"
+    ],
+    "nl": [
+     "trui"
+    ],
+    "sv": [
+     "tröja",
+     "ulltröja"
+    ]
+   },
+   {
+    "id": "denim",
+    "en": [
+     "jeans",
+     "denim"
+    ],
+    "fr": [
+     "jean"
+    ],
+    "es": [
+     "vaqueros",
+     "jeans"
+    ],
+    "it": [
+     "jeans"
+    ],
+    "de": [
+     "Jeans"
+    ],
+    "pt": [
+     "jeans",
+     "calça jeans"
+    ],
+    "nl": [
+     "jeans"
+    ],
+    "sv": [
+     "jeans"
+    ]
+   },
+   {
+    "id": "trousers",
+    "en": [
+     "trousers",
+     "pants",
+     "slacks"
+    ],
+    "fr": [
+     "pantalon"
+    ],
+    "es": [
+     "pantalón"
+    ],
+    "it": [
+     "pantaloni"
+    ],
+    "de": [
+     "Hose"
+    ],
+    "pt": [
+     "calça"
+    ],
+    "nl": [
+     "broek"
+    ],
+    "sv": [
+     "byxor"
+    ]
+   },
+   {
+    "id": "outerwear",
+    "en": [
+     "coat",
+     "jacket",
+     "bomber",
+     "trench"
+    ],
+    "fr": [
+     "veste",
+     "manteau",
+     "blouson"
+    ],
+    "es": [
+     "chaqueta",
+     "abrigo",
+     "cazadora"
+    ],
+    "it": [
+     "giacca",
+     "cappotto"
+    ],
+    "de": [
+     "Jacke",
+     "Mantel",
+     "Lederjacke"
+    ],
+    "pt": [
+     "jaqueta",
+     "casaco"
+    ],
+    "nl": [
+     "jas"
+    ],
+    "sv": [
+     "jacka",
+     "skinnjacka"
+    ]
+   }
+  ],
+  "silhouette": [
+   {
+    "id": "boxy",
+    "en": [
+     "boxy",
+     "square cut",
+     "boxy fit"
+    ],
+    "fr": [
+     "coupe boxy",
+     "coupe carrée"
+    ],
+    "es": [
+     "corte cuadrado",
+     "boxy"
+    ],
+    "it": [
+     "taglio squadrato"
+    ],
+    "de": [
+     "kastig",
+     "kastig geschnitten"
+    ],
+    "pt": [
+     "corte boxy",
+     "corte reto"
+    ],
+    "nl": [
+     "boxy"
+    ],
+    "sv": [
+     "boxig"
+    ]
+   },
+   {
+    "id": "oversized",
+    "en": [
+     "oversized",
+     "roomy",
+     "baggy"
+    ]
+   },
+   {
+    "id": "relaxed",
+    "en": [
+     "relaxed",
+     "slouchy",
+     "loose fit",
+     "a bit loose",
+     "looser"
+    ]
+   },
+   {
+    "id": "slim",
+    "en": [
+     "slim",
+     "fitted",
+     "close fit"
+    ]
+   },
+   {
+    "id": "straight_leg",
+    "en": [
+     "straight leg",
+     "straight-leg",
+     "straight"
+    ]
+   },
+   {
+    "id": "wide_leg",
+    "en": [
+     "wide leg",
+     "wide-leg",
+     "palazzo"
+    ]
+   },
+   {
+    "id": "barrel",
+    "en": [
+     "barrel",
+     "barrel leg",
+     "horseshoe"
+    ]
+   },
+   {
+    "id": "cropped",
+    "en": [
+     "cropped",
+     "crop",
+     "short"
+    ]
+   },
+   {
+    "id": "high_rise",
+    "en": [
+     "high rise",
+     "high-rise",
+     "high waist",
+     "high-waisted"
+    ],
+    "fr": [
+     "taille haute",
+     "taille marquée"
+    ]
+   },
+   {
+    "id": "longline",
+    "en": [
+     "longline",
+     "long length"
+    ]
+   },
+   {
+    "id": "drop_shoulder",
+    "en": [
+     "drop shoulder",
+     "dropped shoulder",
+     "drop-shoulder"
+    ]
+   }
+  ],
+  "material": [
+   {
+    "id": "cotton",
+    "en": [
+     "cotton",
+     "100% cotton",
+     "heavy cotton",
+     "organic cotton"
+    ]
+   },
+   {
+    "id": "linen",
+    "en": [
+     "linen"
+    ]
+   },
+   {
+    "id": "wool",
+    "en": [
+     "wool",
+     "merino",
+     "lambswool",
+     "brushed wool"
+    ],
+    "fr": [
+     "laine"
+    ],
+    "es": [
+     "lana"
+    ],
+    "it": [
+     "lana"
+    ],
+    "de": [
+     "Wolle"
+    ],
+    "pt": [
+     "lã"
+    ],
+    "nl": [
+     "wol"
+    ],
+    "sv": [
+     "ull"
+    ]
+   },
+   {
+    "id": "cashmere",
+    "en": [
+     "cashmere"
+    ]
+   },
+   {
+    "id": "silk",
+    "en": [
+     "silk"
+    ]
+   },
+   {
+    "id": "hemp",
+    "en": [
+     "hemp"
+    ]
+   },
+   {
+    "id": "leather",
+    "en": [
+     "leather",
+     "full-grain leather",
+     "lambskin",
+     "lamb leather",
+     "nappa"
+    ],
+    "fr": [
+     "cuir"
+    ],
+    "es": [
+     "cuero",
+     "piel"
+    ],
+    "it": [
+     "pelle"
+    ],
+    "de": [
+     "Leder"
+    ],
+    "pt": [
+     "couro"
+    ],
+    "nl": [
+     "leer"
+    ],
+    "sv": [
+     "skinn"
+    ]
+   },
+   {
+    "id": "suede",
+    "en": [
+     "suede"
+    ],
+    "es": [
+     "ante"
+    ]
+   },
+   {
+    "id": "recycled_synthetic",
+    "en": [
+     "recycled polyester",
+     "recycled nylon"
+    ]
+   },
+   {
+    "id": "natural_fibre",
+    "en": [
+     "natural fibre",
+     "natural fiber",
+     "natural fibres only"
+    ],
+    "note": "Group: cotton, linen, wool, cashmere, silk, hemp. Not a durability claim."
+   },
+   {
+    "id": "animal_material",
+    "en": [
+     "animal materials",
+     "animal-derived"
+    ],
+    "note": "Group: leather, suede, wool, cashmere, silk, down, fur, shearling. Used for 'no animal materials'."
+   }
+  ],
+  "performance": [
+   {
+    "id": "opaque",
+    "en": [
+     "not see-through",
+     "not sheer",
+     "opaque",
+     "thick",
+     "doesn't show through"
+    ],
+    "fr": [
+     "opaque",
+     "épais"
+    ],
+    "es": [
+     "que no transparente",
+     "opaca",
+     "gruesa"
+    ],
+    "it": [
+     "non trasparente",
+     "spessa"
+    ],
+    "de": [
+     "blickdicht"
+    ],
+    "pt": [
+     "que não fica transparente",
+     "grossa"
+    ],
+    "nl": [
+     "niet doorschijnend"
+    ],
+    "sv": [
+     "inte genomskinlig"
+    ],
+    "evidence_minimum": "customer_reported",
+    "note": "Never asserted from fabric weight alone."
+   },
+   {
+    "id": "breathable",
+    "en": [
+     "breathable",
+     "cool in summer"
+    ]
+   },
+   {
+    "id": "warm",
+    "en": [
+     "warm",
+     "keeps me warm"
+    ]
+   },
+   {
+    "id": "lightweight",
+    "en": [
+     "lightweight",
+     "light",
+     "thin"
+    ]
+   },
+   {
+    "id": "stretch",
+    "en": [
+     "stretchy",
+     "stretch",
+     "some give"
+    ]
+   },
+   {
+    "id": "durable",
+    "en": [
+     "durable",
+     "lasts",
+     "holds up",
+     "holds shape"
+    ]
+   },
+   {
+    "id": "non_itchy",
+    "en": [
+     "doesn't itch",
+     "non-itchy",
+     "not scratchy",
+     "soft against skin"
+    ],
+    "fr": [
+     "qui ne gratte pas"
+    ],
+    "es": [
+     "que no pique"
+    ],
+    "it": [
+     "che non pizzica"
+    ],
+    "de": [
+     "kratzt nicht",
+     "der nicht kratzt"
+    ],
+    "pt": [
+     "que não pinica"
+    ],
+    "nl": [
+     "die niet kriebelt"
+    ],
+    "sv": [
+     "som inte kliar"
+    ]
+   },
+   {
+    "id": "no_pilling",
+    "en": [
+     "doesn't pill",
+     "won't pill",
+     "no pilling"
+    ]
+   },
+   {
+    "id": "no_shrink",
+    "en": [
+     "doesn't shrink",
+     "won't shrink"
+    ]
+   },
+   {
+    "id": "good_drape",
+    "en": [
+     "drapes well",
+     "good drape"
+    ],
+    "fr": [
+     "bien coupé"
+    ],
+    "es": [
+     "de buena caída"
+    ],
+    "it": [
+     "bella vestibilità"
+    ],
+    "de": [
+     "mit gutem Fall"
+    ],
+    "pt": [
+     "bom caimento"
+    ],
+    "nl": [
+     "mooie valling"
+    ],
+    "sv": [
+     "fint fall"
+    ]
+   },
+   {
+    "id": "no_baggy_knees",
+    "en": [
+     "doesn't bag at the knees",
+     "won't bag out",
+     "doesn't stretch out"
+    ]
+   }
+  ],
+  "fit_concern": [
+   {
+    "id": "room_through_bust",
+    "en": [
+     "bigger chest",
+     "larger bust",
+     "big boobs",
+     "fuller bust",
+     "no gaping",
+     "doesn't pull at buttons"
+    ],
+    "note": "Map to features: looser body, stretch, wider or V neck, enough length. Never infer a size."
+   },
+   {
+    "id": "broad_shoulders",
+    "en": [
+     "broad shoulders",
+     "wide shoulders"
+    ]
+   },
+   {
+    "id": "waist_hip_ratio",
+    "en": [
+     "small waist and bigger hips",
+     "curvy hips",
+     "wide hips",
+     "fits my waist and hips"
+    ],
+    "fr": [
+     "adapté aux hanches larges"
+    ],
+    "es": [
+     "para caderas anchas"
+    ],
+    "it": [
+     "per fianchi larghi"
+    ],
+    "de": [
+     "für breite Hüften"
+    ],
+    "pt": [
+     "para quadril largo"
+    ],
+    "nl": [
+     "voor bredere heupen"
+    ],
+    "sv": [
+     "för bredare höfter"
+    ]
+   },
+   {
+    "id": "petite_length",
+    "en": [
+     "petite",
+     "short inseam",
+     "petite length"
+    ]
+   },
+   {
+    "id": "tall_length",
+    "en": [
+     "tall",
+     "long inseam"
+    ]
+   }
+  ],
+  "aesthetic": [
+   {
+    "id": "minimal",
+    "en": [
+     "minimal",
+     "minimalist",
+     "understated",
+     "clean",
+     "quiet"
+    ]
+   },
+   {
+    "id": "downtown",
+    "en": [
+     "downtown",
+     "NYC cool"
+    ]
+   },
+   {
+    "id": "la_cool",
+    "en": [
+     "LA cool",
+     "west coast"
+    ]
+   },
+   {
+    "id": "romantic",
+    "en": [
+     "romantic",
+     "soft",
+     "feminine"
+    ]
+   },
+   {
+    "id": "sculptural",
+    "en": [
+     "sculptural",
+     "architectural"
+    ]
+   },
+   {
+    "id": "vintage",
+    "en": [
+     "vintage",
+     "archival",
+     "retro"
+    ]
+   },
+   {
+    "id": "workwear",
+    "en": [
+     "workwear",
+     "utility"
+    ]
+   },
+   {
+    "id": "editorial",
+    "en": [
+     "fashion-editorial",
+     "art-school",
+     "editorial"
+    ]
+   },
+   {
+    "id": "elevated_basics",
+    "en": [
+     "elevated basics",
+     "well-made basics"
+    ]
+   },
+   {
+    "id": "reference_brand",
+    "en": [
+     "like The Row",
+     "like Khaite",
+     "like [brand] but cheaper"
+    ],
+    "note": "Extract the brand as an aesthetic reference and a relative price ceiling, not a filter."
+   }
+  ],
+  "budget": [
+   {
+    "id": "hard_max",
+    "en": [
+     "under $X",
+     "less than $X",
+     "max $X"
+    ],
+    "note": "Hard cap. Never exceeded unless the shopper allows it."
+   },
+   {
+    "id": "value",
+    "en": [
+     "worth the money",
+     "best quality for the price",
+     "cost per wear"
+    ]
+   },
+   {
+    "id": "investment",
+    "en": [
+     "investment piece",
+     "splurge"
+    ]
+   },
+   {
+    "id": "resale_ok",
+    "en": [
+     "second-hand is fine",
+     "vintage okay",
+     "preloved"
+    ]
+   }
+  ],
+  "ethics": [
+   {
+    "id": "factory_transparency",
+    "en": [
+     "where is it made",
+     "transparent factories",
+     "transparent supply chain"
+    ],
+    "fr": [
+     "marques transparentes sur la fabrication"
+    ],
+    "es": [
+     "marcas transparentes sobre sus fábricas"
+    ],
+    "de": [
+     "transparente Lieferkette"
+    ]
+   },
+   {
+    "id": "animal_free",
+    "en": [
+     "no animal materials",
+     "vegan",
+     "animal-free"
+    ],
+    "note": "Hard exclusion of animal_material."
+   },
+   {
+    "id": "no_fur",
+    "en": [
+     "no fur"
+    ]
+   },
+   {
+    "id": "humane_sourcing",
+    "en": [
+     "humane animal sourcing",
+     "ethical leather"
+    ],
+    "note": "Needs verified evidence; tannery audits alone do not count."
+   },
+   {
+    "id": "certified",
+    "en": [
+     "verified certification",
+     "certified"
+    ]
+   }
+  ]
+ },
+ "seed_phrases_to_validate": {
+  "en": [
+   "boxy white tee",
+   "thick white T-shirt not see-through",
+   "best heavyweight cotton tee",
+   "jeans for curvy hips",
+   "jeans for small waist and bigger hips",
+   "trousers that drape well",
+   "non-itchy wool sweater",
+   "quality leather jacket",
+   "affordable designer-looking jacket",
+   "well-made basics",
+   "best natural-fibre clothes",
+   "transparent clothing brands"
+  ],
+  "fr": [
+   "t-shirt blanc épais et opaque",
+   "tee-shirt coupe boxy",
+   "jean adapté aux hanches larges",
+   "jean taille marquée",
+   "pantalon bien coupé",
+   "pull en laine qui ne gratte pas",
+   "veste en cuir de bonne qualité",
+   "marques de vêtements bien fabriqués",
+   "vêtements de qualité à prix raisonnable",
+   "marques transparentes sur la fabrication"
+  ],
+  "es": [
+   "camiseta blanca gruesa que no transparente",
+   "camiseta de corte cuadrado",
+   "vaqueros para caderas anchas",
+   "pantalón de buena caída",
+   "jersey de lana que no pique",
+   "chaqueta de cuero de calidad",
+   "marcas de ropa bien confeccionada",
+   "ropa de buena calidad a buen precio",
+   "marcas transparentes sobre sus fábricas"
+  ],
+  "it": [
+   "t-shirt bianca spessa non trasparente",
+   "maglietta dal taglio squadrato",
+   "jeans per fianchi larghi",
+   "pantaloni con una bella vestibilità",
+   "maglione di lana che non pizzica",
+   "giacca di pelle di qualità",
+   "marchi di abbigliamento ben fatti",
+   "capi di qualità a buon prezzo",
+   "marchi trasparenti sulla produzione"
+  ],
+  "de": [
+   "blickdichtes weißes T-Shirt",
+   "kastig geschnittenes T-Shirt",
+   "Jeans für breite Hüften",
+   "Hose mit gutem Fall",
+   "Wollpullover der nicht kratzt",
+   "hochwertige Lederjacke",
+   "gut verarbeitete Kleidung",
+   "hochwertige Kleidung zu fairem Preis",
+   "transparente Lieferkette bei Modemarken"
+  ],
+  "pt": [
+   "camiseta branca grossa que não fica transparente",
+   "camiseta de corte reto/boxy",
+   "jeans para quadril largo",
+   "calça com bom caimento",
+   "suéter de lã que não pinica",
+   "jaqueta de couro de qualidade",
+   "marcas de roupa bem feitas",
+   "roupa de qualidade com bom preço",
+   "marcas transparentes sobre a fabricação"
+  ],
+  "nl": [
+   "dikke witte T-shirt die niet doorschijnt",
+   "boxy T-shirt",
+   "jeans voor bredere heupen",
+   "broek met mooie valling",
+   "wollen trui die niet kriebelt",
+   "leren jas van goede kwaliteit",
+   "goed gemaakte kleding",
+   "kwaliteit voor een redelijke prijs",
+   "transparante kledingmerken"
+  ],
+  "sv": [
+   "tjock vit t-shirt som inte är genomskinlig",
+   "boxig t-shirt",
+   "jeans för bredare höfter",
+   "byxor med fint fall",
+   "ulltröja som inte kliar",
+   "skinnjacka av hög kvalitet",
+   "välsydda kläder",
+   "bra kvalitet till rimligt pris",
+   "transparenta klädmärken"
+  ],
+  "ja": [
+   "TO FILL: the Japanese phrases in the spec PDF did not survive text extraction"
+  ],
+  "ko": [
+   "TO FILL: the Korean phrases in the spec PDF did not survive text extraction"
+  ]
+ },
+ "relations_about": "The knowledge graph. Relations link concepts to the product attributes that support or weaken them, and say what an attribute can and cannot tell Filo. Relations guide search and explanations; they are never stored as facts about a product. A product fact always needs its own evidence. Numeric thresholds in raises_likelihood and lowers_likelihood (e.g. 200 gsm) are general textile rules of thumb, not sourced findings: use them only to order search candidates, never as a claim to a shopper, and validate them against Filo's own evidence over time.",
+ "relation_types": {
+  "is_a": "a concept belongs to a broader one (merino is_a wool)",
+  "evidenced_by": "product fields that can confirm the concept",
+  "raises_likelihood": "makes the concept more likely but never proves it",
+  "lowers_likelihood": "makes the concept less likely but never disproves it",
+  "depends_on": "other attributes that also decide the outcome",
+  "does_not_prove": "a common shortcut Filo must never take",
+  "conflicts_with": "cannot both be true for one garment",
+  "fit_feature_for": "product features that address a fit concern"
+ },
+ "relations": [
+  {
+   "from": "merino",
+   "type": "is_a",
+   "to": "wool"
+  },
+  {
+   "from": "lambswool",
+   "type": "is_a",
+   "to": "wool"
+  },
+  {
+   "from": "cashmere",
+   "type": "is_a",
+   "to": "animal_material"
+  },
+  {
+   "from": "wool",
+   "type": "is_a",
+   "to": "animal_material"
+  },
+  {
+   "from": "silk",
+   "type": "is_a",
+   "to": "animal_material"
+  },
+  {
+   "from": "leather",
+   "type": "is_a",
+   "to": "animal_material"
+  },
+  {
+   "from": "suede",
+   "type": "is_a",
+   "to": "animal_material"
+  },
+  {
+   "from": "cotton",
+   "type": "is_a",
+   "to": "natural_fibre"
+  },
+  {
+   "from": "linen",
+   "type": "is_a",
+   "to": "natural_fibre"
+  },
+  {
+   "from": "wool",
+   "type": "is_a",
+   "to": "natural_fibre"
+  },
+  {
+   "from": "cashmere",
+   "type": "is_a",
+   "to": "natural_fibre"
+  },
+  {
+   "from": "silk",
+   "type": "is_a",
+   "to": "natural_fibre"
+  },
+  {
+   "from": "hemp",
+   "type": "is_a",
+   "to": "natural_fibre"
+  },
+  {
+   "from": "opaque",
+   "type": "evidenced_by",
+   "to": [
+    "customer_fit_patterns",
+    "filo_shopper_notes",
+    "lab_tests",
+    "brooklyn_manual"
+   ]
+  },
+  {
+   "from": "opaque",
+   "type": "raises_likelihood",
+   "to": [
+    "fabric_weight >= 200 gsm",
+    "interlock or double knit structure",
+    "darker colour_family"
+   ],
+   "note": "Likelihood only"
+  },
+  {
+   "from": "opaque",
+   "type": "lowers_likelihood",
+   "to": [
+    "fabric_weight < 160 gsm",
+    "white or pale colour_family",
+    "slub or open knit"
+   ]
+  },
+  {
+   "from": "opaque",
+   "type": "depends_on",
+   "to": [
+    "fabric_structure",
+    "colour",
+    "finish_dye",
+    "yarn"
+   ],
+   "note": "A heavy fabric can still be sheer in bright light"
+  },
+  {
+   "from": "heavyweight",
+   "type": "does_not_prove",
+   "to": "opaque"
+  },
+  {
+   "from": "natural_fibre",
+   "type": "does_not_prove",
+   "to": "durable"
+  },
+  {
+   "from": "country_of_assembly",
+   "type": "does_not_prove",
+   "to": "fair_labour"
+  },
+  {
+   "from": "country_of_assembly",
+   "type": "does_not_prove",
+   "to": "high_quality"
+  },
+  {
+   "from": "price",
+   "type": "does_not_prove",
+   "to": "high_quality"
+  },
+  {
+   "from": "certification",
+   "type": "does_not_prove",
+   "to": "whole_product_compliance",
+   "note": "Check scope: product, facility or material stage"
+  },
+  {
+   "from": "brand_sustainability_statement",
+   "type": "does_not_prove",
+   "to": "product_responsibly_sourced",
+   "note": "No ethics by association"
+  },
+  {
+   "from": "tannery_audit",
+   "type": "does_not_prove",
+   "to": "humane_slaughter"
+  },
+  {
+   "from": "durable",
+   "type": "evidenced_by",
+   "to": [
+    "pilling_abrasion",
+    "seam_strength",
+    "wash_testing",
+    "review_patterns",
+    "warranty"
+   ]
+  },
+  {
+   "from": "durable",
+   "type": "raises_likelihood",
+   "to": [
+    "reinforcement",
+    "seam_allowance",
+    "fabric_weight appropriate to category",
+    "long-staple or combed cotton"
+   ]
+  },
+  {
+   "from": "no_pilling",
+   "type": "lowers_likelihood",
+   "to": [
+    "high synthetic share in knitwear",
+    "short-staple fibre",
+    "loose knit"
+   ],
+   "note": "Likelihood only; pilling also depends on yarn twist and wear"
+  },
+  {
+   "from": "non_itchy",
+   "type": "raises_likelihood",
+   "to": [
+    "merino",
+    "cashmere",
+    "fine knit_gauge"
+   ]
+  },
+  {
+   "from": "non_itchy",
+   "type": "depends_on",
+   "to": [
+    "fibre micron where disclosed",
+    "yarn",
+    "finish"
+   ]
+  },
+  {
+   "from": "no_shrink",
+   "type": "evidenced_by",
+   "to": [
+    "shrinkage_guidance",
+    "review_patterns"
+   ]
+  },
+  {
+   "from": "good_drape",
+   "type": "depends_on",
+   "to": [
+    "fabric_weight",
+    "fibre",
+    "fabric_structure"
+   ]
+  },
+  {
+   "from": "room_through_bust",
+   "type": "fit_feature_for",
+   "to": [
+    "ease.bust",
+    "chest_width_cm by size",
+    "stretch_and_recovery",
+    "neckline wide or V",
+    "intended_length not cropped",
+    "customer_fit_patterns"
+   ],
+   "note": "Different from oversized: a garment can be oversized in the torso and still pull at the bust"
+  },
+  {
+   "from": "oversized",
+   "type": "conflicts_with",
+   "to": "slim"
+  },
+  {
+   "from": "cropped",
+   "type": "conflicts_with",
+   "to": "longline"
+  },
+  {
+   "from": "waist_hip_ratio",
+   "type": "fit_feature_for",
+   "to": [
+    "waist_cm and hip_cm by size",
+    "rise",
+    "stretch_and_recovery",
+    "curvy fit cut",
+    "customer_fit_patterns"
+   ]
+  },
+  {
+   "from": "petite_length",
+   "type": "fit_feature_for",
+   "to": [
+    "inseam_cm",
+    "body_length_cm",
+    "petite size range"
+   ]
+  },
+  {
+   "from": "broad_shoulders",
+   "type": "fit_feature_for",
+   "to": [
+    "shoulder_width_cm",
+    "drop_shoulder",
+    "stretch_and_recovery"
+   ]
+  },
+  {
+   "from": "no_baggy_knees",
+   "type": "raises_likelihood",
+   "to": [
+    "rigid denim or low elastane",
+    "good recovery stretch"
+   ]
+  },
+  {
+   "from": "no_baggy_knees",
+   "type": "lowers_likelihood",
+   "to": [
+    "high elastane without recovery note"
+   ]
+  }
+ ],
+ "controlled_values": {
+  "opacity_evidence_minimum": "customer_reported",
+  "fit_promise_rule": "Never promise fit from a photo alone. Give a confidence-labelled estimate and say what supports it.",
+  "europe_countries": "See C_language/stylist_config.json"
+ }
+}

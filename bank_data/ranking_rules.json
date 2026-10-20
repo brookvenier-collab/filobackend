@@ -1,0 +1,191 @@
+{
+  "about": "How Filo decides what to show and in what order. Code applies these rules; the language model never overrides them. Three outputs are calculated separately and never blended into one opaque score: Match, Quality and Evidence Confidence. Changes to this file go through the golden query tests before they ship; usage data creates a research backlog, it never rewrites these rules automatically.",
+  "version": "1.0",
+  "show_rule": {
+    "all_required": [
+      "brand.approved is true",
+      "product.filo.decision is pass or conditional",
+      "product.status is live",
+      "passes Filo's existing quality rules (minimum score, under 50% synthetic, blocked and department-store retailers)",
+      "the shown variant was checked within the freshness window in data_refresh_policy.md",
+      "the shown variant is in stock, preorder or made to order",
+      "the shown variant has a price captured within the freshness window"
+    ]
+  },
+  "hard_filters": {
+    "about": "Applied before any ranking. A product that fails one is removed, never just ranked lower.",
+    "absolute": [
+      {
+        "id": "budget",
+        "rule": "Shown price in the shopper's currency, before shipping and duties, must be at or under a hard_max budget. Never exceeded unless the shopper says over-budget is fine, and then shown in a separate, labelled 'over budget' group."
+      },
+      {
+        "id": "category",
+        "rule": "Must match the requested category concept or its is_a children."
+      },
+      {
+        "id": "size",
+        "rule": "If the shopper gave a size, that size must be available in the shown colour."
+      },
+      {
+        "id": "region",
+        "rule": "Must ship to the shopper's market (CA or US)."
+      },
+      {
+        "id": "material_exclusion",
+        "rule": "Any excluded material (e.g. no wool, no animal materials) present in composition, lining or trims removes the product. Unknown composition also removes it when an exclusion is set."
+      },
+      {
+        "id": "negation_contradicted",
+        "rule": "A stored fact that contradicts a negation (e.g. 'sheer' stored for 'not sheer') removes the product."
+      },
+      {
+        "id": "ethics_requirement",
+        "rule": "When the shopper requires evidence (e.g. traceable leather, verified certification), the claim must exist at the required source type and scope. brand_wide evidence never satisfies a product-level requirement."
+      },
+      {
+        "id": "resale_allowed",
+        "rule": "Resale listings appear only when the shopper allows second-hand or asks for vintage."
+      }
+    ],
+    "evidence_gated": {
+      "about": "Musts that depend on evidence (opacity, fit claims, durability claims). conflicts always removes. unknown is allowed only in the single trade-off slot, clearly labelled with what is missing.",
+      "minimums": {
+        "opaque": "customer_reported",
+        "room_through_bust": "customer_reported or garment measurements",
+        "non_itchy": "customer_reported",
+        "no_pilling": "customer_reported",
+        "no_shrink": "brand_reported"
+      }
+    }
+  },
+  "match_score": {
+    "about": "How well this product satisfies this brief. 0 to 100. Independent of quality.",
+    "components": [
+      {
+        "id": "musts_met",
+        "weight": 0.45,
+        "rule": "Share of must requirements with status confirmed (1.0) or from_photo for cut details (0.6). unknown counts 0."
+      },
+      {
+        "id": "nice_to_haves",
+        "weight": 0.15,
+        "rule": "Share of nice requirements met, same scale."
+      },
+      {
+        "id": "aesthetic",
+        "weight": 0.15,
+        "rule": "Vibe similarity between the brief or reference brand and the product embedding."
+      },
+      {
+        "id": "budget_fit",
+        "weight": 0.1,
+        "rule": "Inside budget = 1.0. Closer to the shopper's stated target range scores higher than far below it."
+      },
+      {
+        "id": "availability",
+        "weight": 0.1,
+        "rule": "Shopper's size in stock in the shown colour = 1.0; size not given = share of core sizes in stock."
+      },
+      {
+        "id": "taste",
+        "weight": 0.05,
+        "rule": "Only with 'Learn my style' on. Saves, likes and explicit preferences. Never more than this weight."
+      }
+    ]
+  },
+  "quality_assessment": {
+    "about": "What the evidence says about how well made it is. Shown as Filo's existing 0 to 100 score plus the rubric profile. Never folded into Match.",
+    "inputs": [
+      "filo.filo_score (existing code, unchanged)",
+      "filo.quality_profile (D_rules/quality_rubric.json)",
+      "fair_price_verdict"
+    ],
+    "rules": [
+      "Natural fibre, price, origin or a brand statement alone never raise quality.",
+      "unknown dimensions are shown as unknown, never as low."
+    ]
+  },
+  "evidence_confidence": {
+    "about": "How complete, direct and current the evidence is behind the claims shown on this card. 0 to 1, shown as High, Medium or Low.",
+    "claim_weights": {
+      "verified": 1.0,
+      "brand_reported": 0.7,
+      "customer_reported": "0.4 + 0.3 x min(sample_size, 30)/30",
+      "inferred": 0.3,
+      "unknown": 0.0,
+      "conflicts": 0.0
+    },
+    "scope_multiplier": {
+      "this_variant": 1.0,
+      "this_style": 1.0,
+      "this_style_all_colours": 0.9,
+      "brand_wide": 0.3,
+      "facility": 0.8,
+      "certificate_scope": 0.8
+    },
+    "freshness_multiplier": "1.0 within the field's freshness window, 0.5 when stale, 0 when source_failed",
+    "formula": "Average over the claims that matter to this brief (its musts plus composition and origin), each weight x scope x freshness.",
+    "labels": {
+      "High": ">= 0.75",
+      "Medium": "0.45 to 0.75",
+      "Low": "< 0.45"
+    }
+  },
+  "ranking": {
+    "order": [
+      "Remove anything failing show_rule or hard_filters.",
+      "Sort by Match.",
+      "Within 5 Match points, prefer higher Evidence Confidence, then higher Quality.",
+      "Then diversify (below).",
+      "Popularity, commission and brand size are never inputs."
+    ],
+    "diversity": {
+      "max_per_brand": "2 in a shortlist of up to 5; 3 in up to 15",
+      "price_spread": "When Match and Quality are comparable, include at least two price points.",
+      "independent_labels": "When an independent or lesser-known label is within 5 Match points of a bigger brand, it gets a slot. Never ranked down for being small."
+    }
+  },
+  "shortlist_slots": {
+    "about": "Default shortlist is 3 to 5. Each slot is filled only if a product earns it; empty slots are skipped, never padded. Up to 15 when the shopper asks for a number.",
+    "slots": [
+      {
+        "id": "best_overall",
+        "label": "Best overall",
+        "rule": "Highest Match among those with High or Medium Evidence Confidence. This is the Stylist's pick."
+      },
+      {
+        "id": "best_value",
+        "label": "Best value",
+        "rule": "Cheaper than best_overall with Quality within 10 points and a Good value or Fair price verdict."
+      },
+      {
+        "id": "best_independent",
+        "label": "Best independent label",
+        "rule": "Highest Match from an independent or lesser-known label not already shown."
+      },
+      {
+        "id": "best_evidence_for",
+        "label": "Best evidence for {requirement}",
+        "rule": "Use when one requirement matters most to the brief (e.g. opacity). Highest confidence on that claim."
+      },
+      {
+        "id": "trade_off",
+        "label": "Trade-off",
+        "rule": "At most one. Excellent Match on the cut or aesthetic, but one evidence-gated must is unknown. The note names exactly what is missing. Never used for an absolute hard filter."
+      }
+    ],
+    "standard_mode": "For basics, use Filo Standards first: best_overall, best_under (budget), best_splurge, as set by Brooklyn, still passing the show rule and hard filters."
+  },
+  "no_match": {
+    "rule": "If nothing passes, never relax a hard filter silently. Say which constraints conflict, offer the ones that could flex as choices, and log the gap.",
+    "partial": "If fewer than asked pass, show them and say how many."
+  },
+  "validation_before_response": [
+    "Every product ID came from this hunt's search results.",
+    "Every claim in a note or card resolves to evidence ledger entries for this product.",
+    "No card shows a hard-filter violation.",
+    "Exactly one Stylist's pick.",
+    "No em dashes in shopper-facing text."
+  ]
+}

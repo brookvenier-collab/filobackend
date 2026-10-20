@@ -1620,6 +1620,180 @@ def test_v31_shopper_voices():
           ["Feels thin", "Nice weight"])
 
 
+def _sample_bank_product():
+    """A draft record shaped like the Colorful Standard tee in the Stage 2 test set."""
+    return {
+        "product_id": "colorful-standard-organic-oversized-crew-raspberry",
+        "brand_id": "colorful-standard",
+        "name": "Organic Oversized Crew",
+        "category": "t_shirt",
+        "gender_target": "women",
+        "product_url": "https://colorfulstandard.com/products/organic-oversized-crew-raspberry-pink-female",
+        "variants": [{"variant_id": "v1", "colour": "Raspberry Pink", "size_label": "M",
+                      "availability": "unknown", "last_checked": "2026-10-20T20:00:00Z"}],
+        "materials": {
+            "composition": {"value": [{"fibre": "cotton", "percent": 100}], "status": "confirmed",
+                            "source_type": "brand_reported", "evidence_ids": ["ev1"], "scope": "this_style"},
+            "fabric_weight": {"value": None, "status": "unknown"},
+        },
+        "construction": {
+            "country_of_assembly": {"value": "Portugal", "status": "confirmed", "source_type": "brand_reported",
+                                    "evidence_ids": ["ev2"], "scope": "this_style"},
+        },
+        "fit": {"fit_tags": [{"tag": "oversized", "fact": {"value": True, "status": "confirmed",
+                 "source_type": "brand_reported", "evidence_ids": ["ev3"], "scope": "this_style"}}]},
+        "status": "draft",
+        "first_seen": "2026-10-20T20:00:00Z",
+        "last_checked": "2026-10-20T20:00:00Z",
+    }
+
+
+def test_bank_stage1():
+    import copy, json, os
+    import bank, bank_seed, bank_validate
+    print("\n=== bank stage 1: tables, starter data and the validator ===")
+
+    check("brand ids are stable", [bank.slug(n) for n in ("Babaà", "&Daughter", "Jamieson's of Shetland")],
+          ["babaa", "and-daughter", "jamieson-s-of-shetland"])
+    rows = bank_seed.brand_rows()
+    check("544 starter brands", len(rows), 544)
+    check("brand ids are unique", len({r["brand_id"] for r in rows}), 544)
+    check("exactly 23 approved", sum(r["approved"] for r in rows), 23)
+    check("no brand url is marked verified yet", any(r["url_verified"] for r in rows), False)
+    check("people tree is marked remove", [r["research_status"] for r in rows if r["name"] == "People Tree"], ["remove"])
+    check("the realreal is a resale source", [r["research_status"] for r in rows if r["name"] == "The RealReal"],
+          ["resale_source"])
+    concepts, phrases, relations = bank_seed.ontology_rows()
+    check("ontology concepts load", len(concepts) >= 60, True)
+    check("heavyweight does not prove opaque",
+          ("heavyweight", "does_not_prove", "opaque") in {(f, t, json.dumps(v).strip('"')) for f, t, v, _ in relations}, True)
+    check("French phrases for not see-through",
+          ("opaque", "fr", "opaque") in phrases, True)
+    check("stylist launches in English only",
+          json.load(open(os.path.join(bank_seed.DATA, "stylist_config.json")))["stylist"]["launch_languages"], ["en"])
+
+    check("schemas are valid", bank_validate.schemas_ok(), True)
+    good = _sample_bank_product()
+    check("a good draft passes", bank_validate.validate_product(good), [])
+    check("a draft with no price is still storable", "price" in good["variants"][0], False)
+    check("evidence must exist when checked",
+          any("evidence not found" in p for p in bank_validate.validate_product(good, ["ev1", "ev2"])), True)
+    bad = copy.deepcopy(good); bad["materials"]["composition"]["evidence_ids"] = []
+    check("confirmed with no evidence is refused",
+          any("needs at least one piece of evidence" in p for p in bank_validate.validate_product(bad)), True)
+    bad = copy.deepcopy(good); bad["materials"]["fabric_weight"] = {"value": 220, "status": "unknown"}
+    check("unknown with a value is refused", bank_validate.validate_product(bad) != [], True)
+    bad = copy.deepcopy(good)
+    bad["materials"]["composition"].update(status="from_photo", source_type="inferred")
+    check("material from a photo is refused",
+          any("can't come from a photo" in p for p in bank_validate.validate_product(bad)), True)
+    bad = copy.deepcopy(good); bad["fit"]["fit_tags"][0]["fact"].update(status="from_photo")
+    check("photo facts must be inferred",
+          any("must be 'inferred'" in p for p in bank_validate.validate_product(bad)), True)
+    bad = copy.deepcopy(good); bad["construction"]["country_of_assembly"]["scope"] = "brand_wide"
+    check("brand-wide evidence can't confirm a product fact",
+          any("brand-wide" in p for p in bank_validate.validate_product(bad)), True)
+    ev = {"evidence_id": "ev1", "claim": "Composition is 100% organic cotton", "subject_type": "product",
+          "subject_id": good["product_id"], "source_url": good["product_url"], "source_kind": "brand_product_page",
+          "source_type": "brand_reported", "quote": "100% Organic Cotton", "scope": "this_style",
+          "confidence": 0.7, "checked_at": "2026-10-20T20:00:00Z", "status": "current"}
+    check("a good evidence entry passes", bank_validate.validate_evidence(ev), [])
+    check("shopper evidence needs a sample size",
+          bank_validate.validate_evidence({**ev, "source_type": "customer_reported"}) != [], True)
+    check("a product page can't be called verified",
+          bank_validate.validate_evidence({**ev, "source_type": "verified"}) != [], True)
+    import events
+    saved, events.DATABASE_URL = events.DATABASE_URL, ""
+    check("no database, no crash", (bank.init_schema(), bank_seed.seed(), bank.counts()), (False, {}, {}))
+    events.DATABASE_URL = saved
+
+
+def test_bank_stage1_postgres():
+    import bank, bank_seed, events
+    print("\n=== bank stage 1 on a real Postgres ===")
+    conn = events._conn()
+    with conn, conn.cursor() as cur:
+        cur.execute("DROP TABLE IF EXISTS " + ", ".join(bank.TABLES) + " CASCADE")
+    conn.close()
+    check("tables create", bank.init_schema(), True)
+    check("...and creating again is safe", bank.init_schema(), True)
+    out = bank_seed.seed()
+    check("seed loads brands", out.get("brands"), 544)
+    c = bank.counts()
+    check("every bank table exists", sorted(c), sorted(bank.TABLES))
+    check("brands stored", c["bank_brands"], 544)
+    conn = events._conn()
+    with conn, conn.cursor() as cur:
+        cur.execute("SELECT count(*) FROM bank_brands WHERE approved")
+        check("23 approved in the database", cur.fetchone()[0], 23)
+        cur.execute("UPDATE bank_brands SET approved = TRUE, studio_note = 'Brooklyn liked it' WHERE brand_id = 'sezane'")
+    conn.close()
+    bank_seed.seed()
+    conn = events._conn()
+    with conn.cursor() as cur:
+        cur.execute("SELECT approved, studio_note FROM bank_brands WHERE brand_id = 'sezane'")
+        check("reseeding keeps Studio changes", cur.fetchone(), (True, "Brooklyn liked it"))
+        cur.execute("SELECT count(*) FROM bank_concept_phrases")
+        n = cur.fetchone()[0]
+    conn.close()
+    bank_seed.seed()
+    check("reseeding adds no duplicate phrases", bank.counts()["bank_concept_phrases"], n)
+
+    def refused(sql, args=()):
+        conn = events._conn()
+        try:
+            with conn, conn.cursor() as cur:
+                cur.execute(sql, args)
+            return False
+        except Exception:
+            return True
+        finally:
+            conn.close()
+    conn = events._conn()
+    with conn, conn.cursor() as cur:
+        cur.execute("""INSERT INTO bank_products (product_id, brand_id, name, category, product_url, record)
+                       VALUES ('p1', 'colorful-standard', 'Organic Oversized Crew', 't_shirt', 'https://x', '{}')""")
+    conn.close()
+    check("database refuses a confirmed fact with no evidence", refused(
+        "INSERT INTO bank_facts (product_id, product_version, field, value, status, source_type) "
+        "VALUES ('p1', 1, 'materials.composition', '\"cotton\"', 'confirmed', 'brand_reported')"), True)
+    check("database refuses a photo fact that isn't inferred", refused(
+        "INSERT INTO bank_facts (product_id, product_version, field, value, status, source_type, evidence_ids) "
+        "VALUES ('p1', 1, 'fit.cropped', 'true', 'from_photo', 'brand_reported', '{ev9}')"), True)
+    check("database accepts an unknown fact", refused(
+        "INSERT INTO bank_facts (product_id, product_version, field, status) "
+        "VALUES ('p1', 1, 'materials.fabric_weight', 'unknown')"), False)
+    check("database refuses shopper evidence with no sample size", refused(
+        "INSERT INTO bank_evidence (evidence_id, claim, subject_type, subject_id, source_url, source_type, "
+        "scope, confidence, checked_at) VALUES ('e1', 'not sheer', 'product', 'p1', 'https://x', "
+        "'customer_reported', 'this_style', 0.5, now())"), True)
+    check("database refuses a price with no currency", refused(
+        "INSERT INTO bank_variants (variant_id, product_id, colour, size_label, price, last_checked) "
+        "VALUES ('v1', 'p1', 'Pink', 'M', 50, now())"), True)
+    check("database accepts a draft with no price", refused(
+        "INSERT INTO bank_variants (variant_id, product_id, colour, size_label, last_checked) "
+        "VALUES ('v2', 'p1', 'Pink', 'M', now())"), False)
+
+    conn = events._conn()
+    with conn, conn.cursor() as cur:
+        cur.execute("INSERT INTO stylist_hunts (hunt_id, device_id, user_id, brief_text, brief_structured, created_at) "
+                    "VALUES ('h-old', 'd1', 'u1', 'boxy white tee', '{\"category\": \"t_shirt\"}', now() - interval '91 days'), "
+                    "('h-new', 'd1', 'u2', 'black jeans', '{}', now())")
+        cur.execute("INSERT INTO stylist_actions (hunt_id, product_id, action) VALUES ('h-old', 'p1', 'heart')")
+        cur.execute("INSERT INTO fit_preferences (owner_id, prefs) VALUES ('u1', '{\"room_through_bust\": true}')")
+    conn.close()
+    check("old brief text is cleared", bank.purge_old_brief_text(), 1)
+    conn = events._conn()
+    with conn.cursor() as cur:
+        cur.execute("SELECT brief_text, brief_structured FROM stylist_hunts WHERE hunt_id = 'h-old'")
+        check("...but the structured brief stays", cur.fetchone(), (None, {"category": "t_shirt"}))
+    conn.close()
+    check("deleting an account removes its hunts", bank.delete_for_user("u1"), 1)
+    c = bank.counts()
+    check("...with their actions and fit preferences", (c["stylist_actions"], c["fit_preferences"], c["stylist_hunts"]),
+          (0, 0, 1))
+
+
 if __name__ == "__main__":
     test_parser()
     test_scoring()
@@ -1661,6 +1835,12 @@ if __name__ == "__main__":
     test_v30_5_more_types_and_true_colour()
     test_v30_8_the_store()
     test_v31_shopper_voices()
+    test_bank_stage1()
+    if __import__("os").environ.get("FILO_TEST_DATABASE_URL"):
+        import events
+        events.DATABASE_URL = __import__("os").environ["FILO_TEST_DATABASE_URL"]
+        test_bank_stage1_postgres()
+        events.DATABASE_URL = ""
     print()
     if FAILS:
         print(f"{len(FAILS)} FAILURES")

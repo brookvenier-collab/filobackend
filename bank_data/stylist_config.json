@@ -1,0 +1,175 @@
+{
+  "stylist": {
+    "enabled": true,
+    "tab_label": "Stylist",
+    "headline": "What are we *hunting* for?",
+    "input_placeholder": "Ask your stylist",
+    "prompt_chips": [
+      "The perfect white tee",
+      "Something no one else has",
+      "Jeans that won't bag out",
+      "A coat that lasts"
+    ],
+    "loading_lines": [
+      "On the hunt",
+      "Checking the tags",
+      "Pulling the good ones"
+    ],
+    "pick_label": "Stylist's pick",
+    "note_label": "Stylist's note",
+    "empty_pull": "Nothing passed this time. Try a higher budget or a different colour and I'll hunt again.",
+    "rate_limit": "That's all the hunting for today. Your stylist is back tomorrow.",
+    "error": "The hunt didn't go through. Try again in a moment.",
+    "needs_consent": "Your stylist needs your OK before the first hunt.",
+    "verdict_page_link": "Send your stylist on the hunt",
+    "disclosure": "Your stylist is AI and only picks from Filo's reviewed bank. Filo may earn a commission on some links. It never changes the pick.",
+    "tab_icon_symbol": "bubble.left",
+    "tab_icon_symbol_selected": "bubble.left.fill",
+    "max_pull": 15,
+    "default_pull": 5,
+    "progress_line": "Found {n} so far",
+    "match_labels": {
+      "confirmed": "Confirmed",
+      "from_photo": "From photo",
+      "not_listed": "Not listed"
+    },
+    "europe_countries": [
+      "Austria",
+      "Belgium",
+      "Bulgaria",
+      "Croatia",
+      "Cyprus",
+      "Czech Republic",
+      "Denmark",
+      "Estonia",
+      "Finland",
+      "France",
+      "Germany",
+      "Greece",
+      "Hungary",
+      "Ireland",
+      "Italy",
+      "Latvia",
+      "Lithuania",
+      "Luxembourg",
+      "Malta",
+      "Netherlands",
+      "Poland",
+      "Portugal",
+      "Romania",
+      "Slovakia",
+      "Slovenia",
+      "Spain",
+      "Sweden",
+      "United Kingdom",
+      "Switzerland",
+      "Norway"
+    ],
+    "unique_label": "Unique find",
+    "no_bank_match": "Nothing in the bank for that yet. I've noted it.",
+    "fit_tags": [
+      "cropped",
+      "boxy",
+      "relaxed",
+      "slim",
+      "oversized",
+      "drop shoulder",
+      "high waist",
+      "mid rise",
+      "low rise",
+      "straight leg",
+      "wide leg",
+      "tapered",
+      "V neck",
+      "crew neck",
+      "wide neck",
+      "longline",
+      "lined",
+      "unlined"
+    ],
+    "launch_categories": [
+      "tees",
+      "knitwear",
+      "denim",
+      "trousers",
+      "outerwear"
+    ],
+    "show_rule_max_age_days": 30,
+    "refine_chips": [
+      "Under $75",
+      "Best quality for the price",
+      "More oversized",
+      "Less cropped",
+      "Better for a fuller bust",
+      "Not see-through",
+      "Natural fibres only",
+      "Show independent brands",
+      "Show lesser-known brands",
+      "More minimalist",
+      "More vintage",
+      "Second-hand okay",
+      "Only verified sourcing",
+      "Heavier fabric",
+      "More premium",
+      "Show similar",
+      "More like this, but less expensive"
+    ],
+    "slot_labels": {
+      "best_overall": "Best overall",
+      "best_value": "Best value",
+      "best_independent": "Best independent label",
+      "best_evidence_for": "Best evidence for {requirement}",
+      "trade_off": "Trade-off",
+      "over_budget": "Over budget"
+    },
+    "source_labels": {
+      "verified": "Verified",
+      "brand_reported": "Brand says",
+      "customer_reported": "Shoppers say",
+      "inferred": "Estimated"
+    },
+    "confidence_labels": {
+      "High": "Strong evidence",
+      "Medium": "Some evidence",
+      "Low": "Little evidence"
+    },
+    "launch_languages": [
+      "en"
+    ],
+    "markets": [
+      "CA",
+      "US"
+    ],
+    "freshness_note": "Price checked {n} days ago",
+    "later_languages": [
+      "fr",
+      "es"
+    ],
+    "daily_limit": 20,
+    "greeting_named": "Hi {first_name}",
+    "greeting_anonymous": "Hi there",
+    "plus_menu": [
+      "Start from my last scan",
+      "Take a photo (later)",
+      "Choose a photo (later)"
+    ],
+    "empty_state_chips": [
+      {
+        "label": "The perfect white tee",
+        "icon": "tshirt"
+      },
+      {
+        "label": "Jeans that last",
+        "icon": "magnifyingglass"
+      },
+      {
+        "label": "Something no one else has",
+        "icon": "eye"
+      },
+      {
+        "label": "More",
+        "icon": "ellipsis"
+      }
+    ]
+  }
+}
