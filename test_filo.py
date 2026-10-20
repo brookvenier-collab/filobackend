@@ -1611,6 +1611,11 @@ def test_v31_shopper_voices():
     check("no database, no crash", voices.shopper_lines("100% polyester", "top", "x"), [])
     lines = " ".join(l for c in (cells, wear, bad) for l in voices.lines_for(c, "oak + fort", "top", "polyester"))
     check("no dashes in what shoppers read", "\u2014" in lines or "\u2013" in lines, False)
+    q = voices.quotes_for(wear, "oak + fort", "top", "polyester")
+    check("quote with how many said it", (q[0]["quote"], q[0]["who"]),
+          ("Still looks new after a month.", "6 Filo shoppers with a piece like this"))
+    check("note quote", voices.quotes_for(cells, "oak + fort", "top", "polyester")[0]["quote"], "Feels thin.")
+    check("no quotes under the floor", voices.quotes_for(few, "oak + fort", "top", "polyester"), [])
     check("chips go to the app", [c["label"] for c in voices.config()["note_chips"]][:2],
           ["Feels thin", "Nice weight"])
 

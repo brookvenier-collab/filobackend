@@ -297,6 +297,8 @@ def analyze(req: AnalyzeRequest):
     # from a group over the floor; empty until then. Never waits on the database.
     result["shoppers"] = voices.shopper_lines(item["composition"], item.get("category"),
                                               item.get("brand"))
+    result["shopper_quotes"] = voices.shopper_quotes(item["composition"], item.get("category"),
+                                                     item.get("brand"))
 
     if (req.item.mode or "full") == "score" or score is None:
         # The fast path: verdict only. The app asks again with mode="full" (or

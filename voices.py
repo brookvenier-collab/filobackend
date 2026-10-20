@@ -327,6 +327,67 @@ def admin_summary(rows: Optional[List[tuple]] = None) -> Dict[str, Any]:
     return {"floor": NOTE_FLOOR, "totals": totals, "groups": groups[:200]}
 
 
+# ---- v31.2: the same reads as short quotes with how many shoppers said them,
+# for the shopper block on the verdict ("Still looks new after a month." /
+# "14 Filo shoppers with a piece like this").
+
+def _wear_quote(cell):
+    for days, when in ((90, "three months"), (30, "a month")):
+        total = len(cell["wear_all"][days])
+        if total < NOTE_FLOOR:
+            continue
+        share = {a: len(cell["wear"][days].get(a, ())) / total for a in WEAR_IDS}
+        if share["fell_apart"] >= 0.3:
+            q = f"Fell apart within {when}."
+        elif share["like_new"] >= 0.6:
+            q = f"Still looks new after {when}."
+        elif share["some_wear"] + share["fell_apart"] >= 0.5:
+            q = f"Shows wear within {when}."
+        else:
+            q = f"Holds up fine for {when}."
+        return {"kind": "wear", "quote": q, "count": total,
+                "who": f"{total} Filo shoppers with a piece like this"}
+    return None
+
+
+def _note_quote(cell):
+    total = len(cell["note_all"])
+    if total < NOTE_FLOOR:
+        return None
+    ranked = sorted(cell["notes"].items(), key=lambda kv: len(kv[1]), reverse=True)
+    picked = [nid for nid, who in ranked if len(who) / total >= NOTE_SHARE][:2]
+    if not picked:
+        return None
+    labels = {c["id"]: c["label"] for c in NOTE_CHIPS}
+    words = [labels[picked[0]]] + [labels[p].lower() for p in picked[1:]]
+    count = len(set().union(*(cell["notes"][p] for p in picked)))
+    return {"kind": "note", "quote": ", ".join(words) + ".", "count": count,
+            "who": f"{count} Filo shoppers noticed"}
+
+
+def quotes_for(cells, brand, garment, fibre):
+    order = [(brand, garment, fibre), (None, garment, fibre), (None, None, fibre)]
+    wear = note = None
+    for key in order:
+        cell = cells.get(key)
+        if not cell:
+            continue
+        wear = wear or _wear_quote(cell)
+        note = note or _note_quote(cell)
+    return [q for q in (wear, note) if q]
+
+
+def shopper_quotes(composition, category, brand):
+    shopper_lines(composition, category, brand)      # keeps the cache fresh
+    b, garment, fibre = piece_key(composition, category, brand)
+    if not fibre and not garment:
+        return []
+    try:
+        return quotes_for(_CACHE["cells"], b, garment, fibre)
+    except Exception:                       # noqa: BLE001
+        return []
+
+
 def config() -> Dict[str, Any]:
     """What the app needs to show the chips and the check-in."""
     return {
