@@ -32,6 +32,8 @@ import value
 import voices
 import bank
 import bank_seed
+import bank_import
+import bank_fx
 
 app = FastAPI(title="Filo AI")
 
@@ -50,6 +52,7 @@ def _startup():
     if bank.init_schema():
         bank_seed.seed()
         bank.purge_old_brief_text()
+        bank_import.start_refresh_thread()
     fund.start_daily_thread()
 
 app.add_middleware(
@@ -1032,3 +1035,48 @@ def shelf_coverage(x_filo_admin: Optional[str] = Header(default=None)):
     """Are we dense enough to sell anything yet?"""
     _require_admin(x_filo_admin)
     return aggregates.coverage()
+
+
+# ------------------------------------------------------------------ the bank (stage 2)
+# Private. Nothing here is shown to shoppers. Studio (stage 3) will call these.
+
+class BankImportIn(BaseModel):
+    url: str
+
+
+@app.post("/internal/bank/import", include_in_schema=False)
+def bank_import_url(body: BankImportIn, x_filo_admin: Optional[str] = Header(default=None)):
+    _require_admin(x_filo_admin)
+    r = bank_import.import_url(body.url)
+    if not r.get("record"):
+        return {"ok": False, "error": r.get("error")}
+    rec = r["record"]
+    return {"ok": r["ok"], "saved": r["saved"], "product_id": rec["product_id"], "problems": r["problems"],
+            "brand": (r["brand"] or {}).get("name"), "brand_matched_by": r["brand_matched_by"],
+            "brand_approved": bool((r["brand"] or {}).get("approved")),
+            "category": rec["category"], "status": rec["status"], "filo": rec.get("filo"),
+            "variants": rec["variants"], "evidence": [{k: e[k] for k in ("field", "quote", "source_type")}
+                                                       for e in r["evidence"]]}
+
+
+@app.get("/internal/bank/products/{product_id}", include_in_schema=False)
+def bank_product(product_id: str, x_filo_admin: Optional[str] = Header(default=None)):
+    _require_admin(x_filo_admin)
+    p = bank_import.load_product(product_id)
+    if not p:
+        raise HTTPException(status_code=404, detail="No such product")
+    p.pop("evidence_full", None)
+    return p
+
+
+@app.post("/internal/bank/refresh/{product_id}", include_in_schema=False)
+def bank_refresh(product_id: str, x_filo_admin: Optional[str] = Header(default=None)):
+    _require_admin(x_filo_admin)
+    return bank_import.refresh(product_id)
+
+
+@app.post("/internal/bank/fx/update", include_in_schema=False)
+def bank_fx_update(x_filo_admin: Optional[str] = Header(default=None)):
+    _require_admin(x_filo_admin)
+    rates = bank_fx.update()
+    return {"ok": bool(rates), "rates": {k: {"to_cad": v[0], "as_of": v[1]} for k, v in rates.items()}}

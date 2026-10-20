@@ -1794,6 +1794,242 @@ def test_bank_stage1_postgres():
           (0, 0, 1))
 
 
+BANK_FIXTURES = {
+    "https://www.altitude-sports.com/p/colorful-standard-organic-oversized-tshirt-unisex-cfs-cs2056": "tee_altitude.html",
+    "https://sirgordonbennett.com/products/ladies-waffle-crew-neck-jumper-skiddaw": "knit_sgb.html",
+    "https://sirgordonbennett.com/products/ladies-waffle-crew-neck-jumper-skiddaw.js": "knit_sgb.js",
+    "https://www.altitude-sports.com/p/nudie-jeans-clean-eileen-jeans-womens-ndj-114679": "jeans_altitude.html",
+    "https://solefeed.com/shop/community-clothing/womens-work-lightweight-trousers-olive-e8d8tk": "trousers_solefeed.html",
+    "https://finisterre.com/en-ca/products/womens-recycled-polyester-firecrest-jacket-burnt-umber": "jacket_finisterre.html",
+    "https://finisterre.com/en-ca/products/womens-recycled-polyester-firecrest-jacket-burnt-umber.js": "jacket_finisterre.js",
+}
+BANK_URL = {k: u for k, u in zip(("tee", "knit", "_knitjs", "jeans", "trousers", "jacket", "_jacketjs"), BANK_FIXTURES)}
+
+
+def _bank_fetcher(overrides=None, fail=()):
+    import os, bank_fetch
+    here = os.path.join(os.path.dirname(os.path.abspath(__file__)), "test_fixtures", "bank")
+
+    def fetch(url):
+        if url in fail:
+            return bank_fetch.FetchResult(False, url, 503, error="HTTP 503")
+        if overrides and url in overrides:
+            t = overrides[url]
+        elif url in BANK_FIXTURES:
+            t = open(os.path.join(here, BANK_FIXTURES[url]), encoding="utf-8").read()
+        else:
+            return bank_fetch.FetchResult(False, url, 404, error="HTTP 404")
+        return bank_fetch.FetchResult(True, url, 200, t, "text/html", None, bank_fetch.page_hash(t))
+    return fetch
+
+
+def _bank_setup():
+    import bank_fetch, bank_fx, bank_facts
+    bank_fetch.FETCHER = _bank_fetcher()
+    bank_fx.clear_cache()
+    bank_fx.set_rate_for_tests("USD", 1.38, "2026-10-19")
+    bank_fx.set_rate_for_tests("GBP", 1.82, "2026-10-19")
+    bank_facts.MODEL_CALL = bank_facts._call_model
+
+
+def test_bank_stage2():
+    import json
+    import bank_extract, bank_facts, bank_fetch, bank_fx, bank_import, events
+    print("\n=== bank stage 2: the importer on the five test products ===")
+    saved_db, events.DATABASE_URL = events.DATABASE_URL, ""
+    _bank_setup()
+    r = {k: bank_import.import_url(BANK_URL[k], save=False) for k in ("tee", "knit", "jeans", "trousers", "jacket")}
+    rec = {k: v["record"] for k, v in r.items()}
+    check("all five make valid records", {k: v["problems"] for k, v in r.items()},
+          {k: [] for k in r})
+    pages = {k: bank_import.read_page(BANK_URL[k])[0].all_text for k in r}
+    bad_quotes = [e["evidence_id"] for k, v in r.items() for e in v["evidence"]
+                  if e.get("quote") and not bank_facts.quote_is_on_page(e["quote"], pages[k])]
+    check("every quote is really on the page", bad_quotes, [])
+    check("every fact points to evidence", all(
+        f["status"] == "unknown" or f.get("evidence_ids")
+        for v in rec.values() for _, f in __import__("bank_validate")._walk_facts(v)), True)
+    check("nothing goes live from an import", sorted({v["status"] for v in rec.values()}), ["draft", "in_review"])
+    check("brands found", {k: (v["brand"] or {}).get("name") for k, v in r.items()},
+          {"tee": "Colorful Standard", "knit": "Peregrine", "jeans": "Nudie Jeans",
+           "trousers": "Community Clothing", "jacket": "Finisterre"})
+    check("the shop is kept apart from the brand", rec["knit"]["retailer"], "sirgordonbennett.com")
+    check("garment types", {k: v["category"] for k, v in rec.items()},
+          {"tee": "t_shirt", "knit": "knitwear", "jeans": "denim", "trousers": "trousers", "jacket": "outerwear"})
+
+    tee = rec["tee"]
+    check("tee: 100% cotton", tee["materials"]["composition"]["value"], [{"fibre": "cotton", "percent": 100}])
+    check("tee: 180g kept as written, not called GSM",
+          (tee["materials"]["fabric_weight"]["value"], tee["materials"]["fabric_weight"]["unit"]), (180.0, "g (as stated)"))
+    check("tee: made in Portugal, as the shop reports it",
+          (tee["construction"]["country_of_assembly"]["value"], tee["construction"]["country_of_assembly"]["source_type"]),
+          ("Portugal", "brand_reported"))
+    check("tee: cut words", sorted(t["tag"] for t in tee["fit"]["fit_tags"]), ["boxy", "cropped", "drop_shoulder", "oversized"])
+    check("tee: stock not stated stays unknown", tee["variants"][0]["availability"], "unknown")
+    check("tee: suggested pass, waiting for review", (tee["filo"]["decision"], tee["status"]), ("pass", "in_review"))
+    check("tee: Filo's score is unchanged", tee["filo"]["filo_score"], 70)
+    check("tee: opacity is unknown, never guessed from weight", tee["fit"]["opacity"], {"value": None, "status": "unknown"})
+
+    knit = rec["knit"]
+    check("knit: price in pounds", knit["variants"][0]["price"], {"amount": 99.75, "currency": "GBP"})
+    check("knit: converted with a dated rate", (knit["variants"][0]["price_cad"], knit["variants"][0]["fx_rate_id"]),
+          (181.55, "GBP-CAD-2026-10-19"))
+    check("knit: sold out in every size", {v["availability"] for v in knit["variants"]}, {"out_of_stock"})
+    check("knit: 'Manchester' isn't turned into a country",
+          knit["construction"]["country_of_assembly"], {**knit["construction"]["country_of_assembly"],
+                                                         "status": "unknown", "value": None, "raw": "Manchester"})
+    check("knit: 'fits large' kept", knit["fit"]["sizing_advice"]["value"], "fits large")
+    check("knit: wool means animal welfare is asked", knit["animal_welfare"]["species"]["status"], "unknown")
+    check("knit: suggested conditional", knit["filo"]["decision"], "conditional")
+
+    jeans = rec["jeans"]
+    check("jeans: 14.9 oz", (jeans["materials"]["fabric_weight"]["value"], jeans["materials"]["fabric_weight"]["unit"]),
+          (14.9, "oz"))
+    check("jeans: 'TN' stays unknown", (jeans["construction"]["country_of_assembly"]["status"],
+                                        jeans["construction"]["country_of_assembly"].get("raw")), ("unknown", "TN"))
+    check("jeans: rigid denim", jeans["fit"]["stretch_and_recovery"]["value"], "rigid")
+    check("jeans: wide leg, high rise", sorted(t["tag"] for t in jeans["fit"]["fit_tags"]),
+          ["high_rise", "relaxed", "wide_leg"])
+
+    tr = rec["trousers"]
+    check("trousers: not enough evidence", tr["filo"]["decision"], "insufficient_evidence")
+    check("trousers: suggests the brand's own page",
+          any("brand's own product page" in m for m in tr["filo"]["missing_evidence"]), True)
+    check("trousers: no brand-wide 'made in the UK' as a product fact",
+          tr["construction"]["country_of_assembly"], {"value": None, "status": "unknown"})
+    check("trousers: sale price kept apart from the regular price",
+          (tr["variants"][0]["price"], tr["variants"][0]["sale_price"]),
+          ({"amount": 145.0, "currency": "USD"}, {"amount": 73.0, "currency": "USD"}))
+
+    j = rec["jacket"]
+    check("jacket: factory named", j["construction"]["factory"]["value"], "Jiangsu Sudey Garment Industrial Co Ltd")
+    check("jacket: made in China", j["construction"]["country_of_assembly"]["value"], "China")
+    check("jacket: held back for being synthetic", (j["filo"]["decision"], "synthetic" in j["filo"]["decision_reason"]),
+          ("hold", True))
+    check("jacket: price per colour", sorted({(v["colour"], v["price"]["amount"]) for v in j["variants"]}),
+          [("Burnt Umber", 250.0), ("Deep Sea", 260.0)])
+
+    # The AI tagger: only facts whose quotes are on the page, and never a guessed country.
+    def fake_model(prompt):
+        return json.dumps({"facts": [
+            {"field": "materials.fabric_structure", "value": "waffle", "quote": "Ladies Waffle Crew Neck Jumper"},
+            {"field": "construction.country_of_assembly", "value": "United Kingdom", "quote": "Made in Manchester"},
+            {"field": "fit.neckline", "value": "crew", "quote": "A classic crew neck cut close to the body"},
+        ]})
+    bank_facts.MODEL_CALL = fake_model
+    ai = bank_import.import_url(BANK_URL["knit"], save=False)["record"]
+    bank_facts.MODEL_CALL = bank_facts._call_model
+    check("AI fact with a real quote is kept", ai["materials"].get("fabric_structure", {}).get("value"), "waffle")
+    check("AI can't turn 'Manchester' into a country", ai["construction"]["country_of_assembly"]["status"], "unknown")
+    check("AI fact with an invented quote is dropped", "neckline" in ai.get("fit", {}), False)
+
+    page = bank_extract.extract("<body><p>$73.00</p></body>", "https://shop.example/p")
+    check("a bare $ price isn't given a currency", bank_import._text_price(page)[:2], (None, None))
+    check("exchange rates read from the Bank of Canada format", bank_fx.parse_valet(json.dumps(
+        {"observations": [{"d": "2026-10-19", "FXUSDCAD": {"v": "1.3812"}, "FXGBPCAD": {"v": "1.8301"}}]})),
+        {"USD": (1.3812, "2026-10-19"), "GBP": (1.8301, "2026-10-19")})
+    bank_fx.clear_cache()
+    check("no rate, no conversion", bank_fx.convert(10, "GBP")["price_cad"], None)
+
+    bank_fetch.FETCHER = bank_fetch.http_fetch
+    real_get = bank_fetch._raw_get
+    bank_fetch._robots.clear()
+    bank_fetch._raw_get = lambda url: (bank_fetch.FetchResult(True, url, 200, "User-agent: *\nDisallow: /", "", None, "h")
+                                       if url.endswith("/robots.txt") else bank_fetch.FetchResult(True, url, 200, "page"))
+    check("robots.txt is respected", bank_fetch.fetch("https://no-bots.example/products/x").error,
+          "blocked by the site's robots.txt")
+    bank_fetch._raw_get = real_get
+    bank_fetch._robots.clear()
+    _bank_setup()
+
+    import main
+    try:
+        main.bank_import_url(main.BankImportIn(url=BANK_URL["tee"]), x_filo_admin="wrong")
+        locked = False
+    except Exception as e:
+        locked = getattr(e, "status_code", None) == 404
+    check("import needs the admin key", locked, True)
+    events.DATABASE_URL = saved_db
+
+
+def test_bank_stage2_postgres():
+    import bank, bank_fetch, bank_import, bank_seed, events
+    print("\n=== bank stage 2 on a real Postgres ===")
+    _bank_setup()
+    conn = events._conn()
+    with conn, conn.cursor() as cur:
+        cur.execute("DROP TABLE IF EXISTS " + ", ".join(bank.TABLES) + " CASCADE")
+    conn.close()
+    bank.init_schema()
+    bank_seed.seed()
+    saved = {k: bank_import.import_url(BANK_URL[k]) for k in ("tee", "knit", "jeans", "trousers", "jacket")}
+    check("all five saved", {k: v["saved"] for k, v in saved.items()}, {k: True for k in saved})
+    pid = {k: v["product_id"] for k, v in saved.items()}
+
+    def q(sql, args=()):
+        conn = events._conn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(sql, args)
+                return cur.fetchall()
+        finally:
+            conn.close()
+
+    def run(sql, args=()):
+        conn = events._conn()
+        with conn, conn.cursor() as cur:
+            cur.execute(sql, args)
+        conn.close()
+    check("nothing is live after import", q("SELECT count(*) FROM bank_products WHERE status = 'live'")[0][0], 0)
+    check("suggested decisions stored", dict(q("SELECT category, decision FROM bank_products")),
+          {"t_shirt": "pass", "knitwear": "conditional", "denim": "conditional",
+           "trousers": "insufficient_evidence", "outerwear": "hold"})
+    check("facts stored with evidence", q("""SELECT count(*) FROM bank_facts
+                                             WHERE status <> 'unknown' AND cardinality(evidence_ids) = 0""")[0][0], 0)
+    check("evidence stored", q("SELECT count(*) > 20 FROM bank_evidence")[0][0], True)
+    check("variants stored with prices", q("SELECT count(*) FROM bank_variants WHERE product_id = %s AND price IS NOT NULL",
+                                           (pid["jacket"],))[0][0], 3)
+
+    r = bank_import.refresh(pid["tee"])
+    check("same page: no new version", (r["ok"], r["changed"], r["product_version"]), (True, False, 1))
+
+    run("UPDATE bank_products SET status = 'live', decided_by = 'brooklyn' WHERE product_id = %s", (pid["tee"],))
+    changed = open(__import__("os").path.join(__import__("os").path.dirname(__import__("os").path.abspath(__file__)),
+                   "test_fixtures", "bank", "tee_altitude.html")).read().replace(
+        "100% Organic Cotton, 180g", "95% Organic Cotton, 5% Elastane, 180g")
+    bank_fetch.FETCHER = _bank_fetcher({BANK_URL["tee"]: changed})
+    r = bank_import.refresh(pid["tee"])
+    check("composition changed: new version", (r["changed"], r["product_version"]), (True, 2))
+    check("...back to Brooklyn for review", q("SELECT status, decided_by FROM bank_products WHERE product_id = %s",
+                                              (pid["tee"],))[0], ("in_review", None))
+    check("...the old version's facts are kept", q("""SELECT count(*) > 0 FROM bank_facts
+                                                      WHERE product_id = %s AND product_version = 1""", (pid["tee"],))[0][0], True)
+    check("...and the new composition is recorded", q("""SELECT value FROM bank_facts WHERE product_id = %s
+                     AND product_version = 2 AND field = 'materials.composition'""", (pid["tee"],))[0][0],
+          [{"fibre": "cotton", "percent": 95}, {"fibre": "elastane", "percent": 5}])
+
+    run("UPDATE bank_products SET status = 'live', decided_by = 'brooklyn' WHERE product_id = %s", (pid["jacket"],))
+    bank_fetch.FETCHER = _bank_fetcher(fail={BANK_URL["jacket"]})
+    r1 = bank_import.refresh(pid["jacket"])
+    check("source fails: hidden, never shown stale", (r1["ok"], r1["hidden"], r1["retry_in_hours"]), (False, True, 1))
+    check("...its evidence is marked failed", q("""SELECT count(*) = count(*) FILTER (WHERE status = 'source_failed')
+                                                   FROM bank_evidence WHERE subject_id = %s""", (pid["jacket"],))[0][0], True)
+    r2 = bank_import.refresh(pid["jacket"])
+    check("...next retry waits longer", r2["retry_in_hours"], 6)
+    bank_fetch.FETCHER = _bank_fetcher()
+    r3 = bank_import.refresh(pid["jacket"])
+    check("source back: shown again", (r3["ok"], q("SELECT status FROM bank_products WHERE product_id = %s",
+                                                   (pid["jacket"],))[0][0]), (True, "live"))
+    check("...evidence current again", q("""SELECT count(*) FILTER (WHERE status = 'source_failed')
+                                            FROM bank_evidence WHERE subject_id = %s""", (pid["jacket"],))[0][0], 0)
+
+    run("UPDATE bank_products SET status = 'live' WHERE product_id = %s", (pid["knit"],))
+    bank_import.refresh(pid["knit"])
+    check("sold out: hidden until it's back", q("SELECT status FROM bank_products WHERE product_id = %s",
+                                                (pid["knit"],))[0][0], "hidden_out_of_stock")
+    check("refresh log kept", q("SELECT count(*) >= 8 FROM bank_sources_log")[0][0], True)
+
+
 if __name__ == "__main__":
     test_parser()
     test_scoring()
@@ -1836,10 +2072,12 @@ if __name__ == "__main__":
     test_v30_8_the_store()
     test_v31_shopper_voices()
     test_bank_stage1()
+    test_bank_stage2()
     if __import__("os").environ.get("FILO_TEST_DATABASE_URL"):
         import events
         events.DATABASE_URL = __import__("os").environ["FILO_TEST_DATABASE_URL"]
         test_bank_stage1_postgres()
+        test_bank_stage2_postgres()
         events.DATABASE_URL = ""
     print()
     if FAILS:

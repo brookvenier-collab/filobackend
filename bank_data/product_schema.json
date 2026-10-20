@@ -311,8 +311,10 @@
         "skirt",
         "dress",
         "outerwear",
-        "leather_outerwear"
-      ]
+        "leather_outerwear",
+        "uncategorized"
+      ],
+      "description": "'uncategorized' means the page didn't make the garment type clear; it never shows until Brooklyn sets it."
     },
     "subcategory": {
       "type": "string"
