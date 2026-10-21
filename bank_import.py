@@ -576,7 +576,7 @@ def load_product(product_id: str) -> Optional[dict]:
         return None
     try:
         with conn.cursor() as cur:
-            cur.execute("""SELECT record, status, decision, decided_by, product_version, product_url
+            cur.execute("""SELECT record, status, decision, decided_by, product_version, product_url, studio_edits
                            FROM bank_products WHERE product_id = %s""", (product_id,))
             row = cur.fetchone()
             if not row:
@@ -587,12 +587,16 @@ def load_product(product_id: str) -> Optional[dict]:
                     for r in cur.fetchall()]
         ev = [{k: v for k, v in e.items() if k != "page_hash"} for e in full]
         return {"record": row[0], "status": row[1], "decision": row[2], "decided_by": row[3],
-                "product_version": row[4], "product_url": row[5], "evidence": ev, "evidence_full": full}
+                "product_version": row[4], "product_url": row[5], "studio_edits": row[6] or {},
+                "evidence": ev, "evidence_full": full}
     finally:
         conn.close()
 
 
 # ------------------------------------------------------------------ refresh
+
+STUDIO_FILO_KEYS = ("is_unique_find", "is_independent_label", "studio_note")
+
 
 def _key_facts(record: dict) -> Dict[str, Any]:
     """The facts that, if they change, need Brooklyn to look again."""
@@ -672,12 +676,19 @@ def refresh(product_id: str) -> Dict[str, Any]:
         new, changed = kept, False
         evidence = []
     else:
-        changed = _key_facts(old) != _key_facts(new)
+        # Compare what the page said then with what it says now, not with Brooklyn's own tag fixes.
+        page_tags = (saved.get("studio_edits") or {}).get("fit_tags_page")
+        old_page = old if page_tags is None else {**old, "fit": {**(old.get("fit") or {}), "fit_tags": page_tags}}
+        changed = _key_facts(old_page) != _key_facts(new)
         evidence = built["evidence"]
         if not changed:
             # Wording moved but the key facts didn't: keep the reviewed record and its evidence.
             new = {**old, "variants": new["variants"], "last_checked": new["last_checked"]}
             evidence = []
+    # Brooklyn's own marks stay with the product across versions.
+    for k in STUDIO_FILO_KEYS:
+        if k in (old.get("filo") or {}):
+            new.setdefault("filo", {})[k] = old["filo"][k]
     version = next_version if changed else int(saved["product_version"])
     new["product_version"] = str(version)
     ok_variants = [v for v in new["variants"] if v["availability"] in ("in_stock", "low_stock", "preorder", "made_to_order")]
@@ -690,10 +701,13 @@ def refresh(product_id: str) -> Dict[str, Any]:
                 cur.execute("UPDATE bank_evidence SET status = 'current' WHERE subject_id = %s AND status = 'source_failed'",
                             (product_id,))
                 if changed:
-                    cur.execute("UPDATE bank_products SET status = 'in_review', decided_by = NULL WHERE product_id = %s",
+                    cur.execute("""UPDATE bank_products SET status = 'in_review', decided_by = NULL,
+                                   studio_edits = studio_edits - 'fit_tags_page' WHERE product_id = %s""",
                                 (product_id,))
                 elif status_was in ("live", "hidden_stale", "hidden_out_of_stock"):
-                    target = "live" if ok_variants else "hidden_out_of_stock"
+                    # Stock not stated at all isn't "sold out": it stays live and Stage 4 won't show it.
+                    unknown = all(v["availability"] == "unknown" for v in new["variants"])
+                    target = "live" if ok_variants or unknown else "hidden_out_of_stock"
                     cur.execute("UPDATE bank_products SET status = %s WHERE product_id = %s", (target, product_id))
         finally:
             conn.close()

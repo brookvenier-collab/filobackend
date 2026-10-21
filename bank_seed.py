@@ -121,7 +121,7 @@ def seed() -> Dict[str, int]:
                         %(flags)s::jsonb, %(research)s::jsonb, %(discovery)s::jsonb, %(directory)s::jsonb)
                     ON CONFLICT (brand_id) DO UPDATE SET
                         categories = EXCLUDED.categories,
-                        research_status = CASE WHEN bank_brands.approved
+                        research_status = CASE WHEN bank_brands.approved OR bank_brands.studio_touched
                                                THEN bank_brands.research_status
                                                ELSE EXCLUDED.research_status END,
                         evidence_level = EXCLUDED.evidence_level,

@@ -268,6 +268,18 @@ CREATE TABLE IF NOT EXISTS fit_preferences (
     prefs      JSONB NOT NULL,                 -- only what the shopper chose to save
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+-- Stage 3: Studio
+ALTER TABLE bank_brands ADD COLUMN IF NOT EXISTS studio_touched BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE bank_products ADD COLUMN IF NOT EXISTS studio_edits JSONB NOT NULL DEFAULT '{}';
+ALTER TABLE bank_concept_phrases ADD COLUMN IF NOT EXISTS removed BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE bank_concept_phrases ADD COLUMN IF NOT EXISTS added_in_studio BOOLEAN NOT NULL DEFAULT FALSE;
+CREATE TABLE IF NOT EXISTS studio_log (
+    id      BIGSERIAL PRIMARY KEY,
+    at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    action  TEXT NOT NULL,
+    subject TEXT,
+    detail  JSONB
+);
 """
 
 TABLES = (
@@ -275,7 +287,7 @@ TABLES = (
     "bank_evidence", "bank_facts", "bank_fx_rates", "bank_concepts",
     "bank_concept_phrases", "bank_concept_relations", "bank_standards",
     "bank_gaps", "bank_sources_log", "stylist_hunts", "stylist_results",
-    "stylist_actions", "stylist_usage", "fit_preferences",
+    "stylist_actions", "stylist_usage", "fit_preferences", "studio_log",
 )
 
 BRIEF_TEXT_DAYS = 90

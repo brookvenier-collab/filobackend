@@ -2030,6 +2030,249 @@ def test_bank_stage2_postgres():
     check("refresh log kept", q("SELECT count(*) >= 8 FROM bank_sources_log")[0][0], True)
 
 
+def test_bank_stage3():
+    import io, logging, os, secrets
+    import bank_import, events, studio
+    print("\n=== bank stage 3: Studio sign-in and go-live rules ===")
+    saved_db, events.DATABASE_URL = events.DATABASE_URL, ""
+    saved_pw = os.environ.pop("STUDIO_PASSWORD", None)
+    studio.reset_for_tests()
+    check("no password set: Studio is off", studio.login("anything", "1.1.1.1")[0:2],
+          (False, "Studio is off. Add STUDIO_PASSWORD in Railway to switch it on."))
+    pw = "test-" + secrets.token_hex(8)          # made up for this run; never the real one
+    os.environ["STUDIO_PASSWORD"] = pw
+    buf = io.StringIO()
+    handler = logging.StreamHandler(buf)
+    logging.getLogger("filo.studio").addHandler(handler)
+    check("wrong password says how many tries are left", studio.login("nope", "1.1.1.1")[1], "That's not it. 4 tries left.")
+    for _ in range(3):
+        studio.login("nope", "1.1.1.1")
+    check("5th wrong try locks that address", studio.login("nope", "1.1.1.1")[1], "Too many wrong tries. Try again in 15 minutes.")
+    check("...even the right password is refused while locked", studio.login(pw, "1.1.1.1")[0], False)
+    check("...another address can still sign in", studio.login(pw, "2.2.2.2")[0], True)
+    check("...and the lock lifts after 15 minutes", studio.login(pw, "1.1.1.1", now=__import__("time").time() + 15 * 60 + 5)[0], True)
+    studio.reset_for_tests()
+    for i in range(25):
+        studio.login("nope", f"10.0.0.{i}")
+    check("25 wrong tries from many addresses locks everyone", studio.login(pw, "3.3.3.3")[0], False)
+    studio.reset_for_tests()
+    ok, _, token = studio.login(pw, "4.4.4.4")
+    check("right password gives a sign-in", (ok, studio.token_ok(token)), (True, True))
+    check("a changed sign-in is refused", studio.token_ok(token[:-1] + ("0" if token[-1] != "0" else "1")), False)
+    check("a sign-in ends after 12 hours", studio.token_ok(token, now=__import__("time").time() + 12 * 3600 + 5), False)
+    studio.sign_out(token)
+    check("signing out ends it", studio.token_ok(token), False)
+    ok, _, token = studio.login(pw, "4.4.4.4")
+    os.environ["STUDIO_PASSWORD"] = pw + "x"
+    check("changing the password signs everyone out", studio.token_ok(token), False)
+    os.environ["STUDIO_PASSWORD"] = pw
+    logging.getLogger("filo.studio").removeHandler(handler)
+    check("the password never reaches the log", pw in buf.getvalue() or "nope" in buf.getvalue(), False)
+    import studio_page
+    check("the password isn't in the page", pw in studio_page.PAGE, False)
+    check("the page escapes what it shows", "const esc=" in studio_page.PAGE and "innerHTML=`" in studio_page.PAGE, True)
+
+    _bank_setup()
+    rec = {k: bank_import.import_url(BANK_URL[k], save=False)["record"] for k in ("tee", "trousers", "jacket", "knit")}
+    check("tee can go live once its brand is approved", studio.go_live_problems(rec["tee"], True, "pass"), [])
+    check("...not while its brand isn't", studio.go_live_problems(rec["tee"], False, "pass"),
+          ["The brand isn't approved yet. Approve it in Brands first."])
+    check("...not on hold", studio.go_live_problems(rec["tee"], True, "hold"),
+          ["The decision has to be pass or conditional."])
+    check("trousers can't: no composition", "What it's made of isn't confirmed." in
+          studio.go_live_problems(rec["trousers"], True, "pass"), True)
+    check("jacket can't, even if Brooklyn says pass: Filo's rules still apply",
+          any("synthetic" in p for p in studio.go_live_problems(rec["jacket"], True, "pass")), True)
+    check("stock not stated: warned it won't show yet", "won't show in a hunt" in (studio._stock_note(rec["tee"]) or ""), True)
+    check("sold out everywhere: warned it goes live hidden", "Sold out" in (studio._stock_note(rec["knit"]) or ""), True)
+    studio.reset_for_tests()
+    if saved_pw is None:
+        os.environ.pop("STUDIO_PASSWORD", None)
+    else:
+        os.environ["STUDIO_PASSWORD"] = saved_pw
+    events.DATABASE_URL = saved_db
+
+
+def test_bank_stage3_postgres():
+    import os, secrets
+    import bank, bank_fetch, bank_import, bank_seed, events, studio
+    print("\n=== bank stage 3: Studio on a real Postgres ===")
+    try:
+        from fastapi.testclient import TestClient
+    except Exception:                       # httpx not installed
+        print("  (skipped: pip install httpx to run the Studio web checks)")
+        return
+    import main
+    _bank_setup()
+    conn = events._conn()
+    with conn, conn.cursor() as cur:
+        cur.execute("DROP TABLE IF EXISTS " + ", ".join(bank.TABLES) + " CASCADE")
+    conn.close()
+    bank.init_schema()
+    bank_seed.seed()
+    saved_pw = os.environ.get("STUDIO_PASSWORD")
+    pw = "test-" + secrets.token_hex(8)
+    os.environ["STUDIO_PASSWORD"] = pw
+    studio.reset_for_tests()
+    c = TestClient(main.app, base_url="https://testserver")
+    H = {"X-Studio": "1"}
+
+    def q(sql, args=()):
+        conn = events._conn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(sql, args)
+                return cur.fetchall()
+        finally:
+            conn.close()
+
+    check("Studio page loads", c.get("/studio").status_code, 200)
+    check("...and isn't cached or framed", (c.get("/studio").headers.get("cache-control"),
+                                            c.get("/studio").headers.get("x-frame-options")), ("no-store", "DENY"))
+    check("data is locked before sign-in", c.get("/studio/api/products").status_code, 401)
+    check("wrong password refused", c.post("/studio/login", json={"password": "nope"}, headers=H).status_code, 401)
+    check("sign-in from another site refused", c.post("/studio/login", json={"password": pw}).status_code, 403)
+    r = c.post("/studio/login", json={"password": pw}, headers=H)
+    check("right password signs in", r.status_code, 200)
+    cookie = r.headers.get("set-cookie", "")
+    check("sign-in cookie is locked down", all(x in cookie.lower() for x in ("httponly", "secure", "samesite=strict", "path=/studio")), True)
+    check("changes need the Studio header", c.post("/studio/api/import", json={"url": BANK_URL["tee"]}).status_code, 403)
+
+    imp = c.post("/studio/api/import", json={"url": BANK_URL["tee"]}, headers=H).json()
+    check("import from Studio saves for review", (imp["saved"], imp["message"].startswith("Saved for review. Suggested: pass.")),
+          (True, True))
+    tee = imp["product_id"]
+    bad = c.post("/studio/api/import", json={"url": "not a link"}, headers=H)
+    check("a non-link is refused plainly", (bad.status_code, bad.json()["detail"]),
+          (400, "Paste the full product link, starting with https://"))
+    for k in ("knit", "trousers", "jacket"):
+        c.post("/studio/api/import", json={"url": BANK_URL[k]}, headers=H)
+    ids = dict(q("SELECT category, product_id FROM bank_products"))
+    lst = c.get("/studio/api/products").json()
+    check("review list puts 'needs review' first", lst["products"][0]["status"], "in_review")
+    d = c.get(f"/studio/api/products/{tee}").json()
+    check("product view shows every fact with evidence", all(f["status"] == "unknown" or f["evidence"] for f in d["facts"]), True)
+    check("...the composition quote", any(e.get("quote") == "100% Organic Cotton, 180g"
+                                          for f in d["facts"] for e in f["evidence"]), True)
+    check("...nothing blocking go-live", d["go_live_problems"], [])
+
+    stale = c.post(f"/studio/api/products/{tee}/decide", json={"decision": "pass", "version": 7, "publish": True}, headers=H)
+    check("deciding on an old version is refused", stale.status_code, 400)
+    r = c.post(f"/studio/api/products/{tee}/decide", json={"decision": "pass", "version": 1, "publish": True,
+                                                         "reason": "Checked the page."}, headers=H)
+    check("confirm and go live", r.json(), {"status": "live", "decision": "pass"})
+    check("...recorded as Brooklyn's", q("SELECT decided_by, decision_reason, status FROM bank_products WHERE product_id = %s",
+                                         (tee,))[0], ("brooklyn", "Checked the page.", "live"))
+    r = c.post(f"/studio/api/products/{ids['trousers']}/decide", json={"decision": "pass", "version": 1, "publish": True}, headers=H)
+    check("trousers can't go live, and Studio says why", (r.status_code, "isn't confirmed" in r.json()["detail"]), (400, True))
+    r = c.post(f"/studio/api/products/{ids['outerwear']}/decide", json={"decision": "hold", "version": 1}, headers=H)
+    check("hold keeps it out of the shop", r.json()["status"], "draft")
+
+    r = c.post(f"/studio/api/products/{tee}/flags", json={"version": 1, "changes": {"is_unique_find": True, "studio_note": "Great weight."}}, headers=H)
+    check("mark a unique find", r.json()["is_unique_find"], True)
+    r = c.post(f"/studio/api/products/{tee}/tags", json={"version": 1, "tags": ["oversized", "boxy", "drop_shoulder", "relaxed"]}, headers=H)
+    check("fix the cut words", r.json()["fit_tags"], ["oversized", "boxy", "drop_shoulder", "relaxed"])
+    d = c.get(f"/studio/api/products/{tee}").json()
+    added = [t for t in d["record"]["fit"]["fit_tags"] if t["tag"] == "relaxed"][0]["fact"]
+    check("...a word you add is your read of the photos, not confirmed", (added["status"], added["source_type"]),
+          ("from_photo", "inferred"))
+    check("...with its own evidence", q("SELECT source_kind FROM bank_evidence WHERE evidence_id = %s",
+                                        (added["evidence_ids"][0],))[0][0], "brooklyn_manual")
+    check("...still live", d["status"], "live")
+    bad = c.post(f"/studio/api/products/{tee}/tags", json={"version": 1, "tags": ["sparkly"]}, headers=H)
+    check("...an unknown cut word is refused", bad.status_code, 400)
+
+    r = bank_import.refresh(tee)
+    check("same page after your fixes: no new version", (r["changed"], r["product_version"]), (False, 1))
+    d = c.get(f"/studio/api/products/{tee}").json()
+    check("...your cut words and marks survive", (sorted(t["tag"] for t in d["record"]["fit"]["fit_tags"]),
+                                                  d["record"]["filo"]["is_unique_find"], d["status"]),
+          (["boxy", "drop_shoulder", "oversized", "relaxed"], True, "live"))
+    check("...stock not stated stays live, not 'sold out'", d["status"], "live")
+    changed = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "test_fixtures", "bank",
+                                "tee_altitude.html")).read().replace("100% Organic Cotton, 180g", "95% Organic Cotton, 5% Elastane, 180g")
+    bank_fetch.FETCHER = _bank_fetcher({BANK_URL["tee"]: changed})
+    r = bank_import.refresh(tee)
+    bank_fetch.FETCHER = _bank_fetcher()
+    d = c.get(f"/studio/api/products/{tee}").json()
+    check("page changed: version 2, back to review", (r["product_version"], d["status"], d["decided_by"]), (2, "in_review", None))
+    check("...your unique-find mark carries over", d["record"]["filo"].get("is_unique_find"), True)
+
+    r = c.post("/studio/api/brands/peregrine", json={"reject": True}, headers=H)
+    check("reject a brand", (r.json()["approved"], r.json()["research_status"]), (False, "remove"))
+    bank_seed.seed()
+    check("...a restart doesn't undo it", q("SELECT approved, research_status FROM bank_brands WHERE brand_id = 'peregrine'")[0],
+          (False, "remove"))
+    r = c.post("/studio/api/brands/peregrine", json={"approved": True, "style_fit": 3, "studio_note": "Back in."}, headers=H)
+    check("approve it again with a note", (r.json()["approved"], r.json()["style_fit"], r.json()["research_status"]),
+          (True, 3, "priority_screen"))
+    check("style fit is 0 to 4", c.post("/studio/api/brands/peregrine", json={"style_fit": 9}, headers=H).status_code, 400)
+    b = c.get("/studio/api/brands?approved=yes&q=peregrine").json()
+    check("brand filters work", [x["brand_id"] for x in b["brands"]], ["peregrine"])
+
+    jeans_live = c.post(f"/studio/api/products/{ids['knitwear']}/decide", json={"decision": "conditional", "version": 1}, headers=H)
+    check("conditional without going live stays in review", jeans_live.json()["status"], "in_review")
+    st = c.post("/studio/api/standards/set", json={"basic": "white_t_shirt", "slot": "best_overall", "product_id": ids["trousers"]}, headers=H)
+    check("only confirmed products can be a Standard", st.status_code, 400)
+    st = c.post("/studio/api/standards/set", json={"basic": "crewneck_sweater", "slot": "best_under", "product_id": ids["knitwear"]}, headers=H)
+    check("best under needs a price", st.status_code, 400)
+    st = c.post("/studio/api/standards/set", json={"basic": "crewneck_sweater", "slot": "best_under", "product_id": ids["knitwear"],
+                                                   "price_line": 200, "note": "Proper wool."}, headers=H).json()
+    sw = [s for s in st["standards"] if s["basic"] == "crewneck_sweater"][0]["picks"]
+    check("set a Standard", [(p["slot"], p["price_line"], p["note"]) for p in sw], [("best_under", 200.0, "Proper wool.")])
+    check("ten basics listed", len(st["standards"]), 10)
+
+    voc = c.get("/studio/api/vocabulary?q=boxy").json()
+    phrase = [p for x in voc["concepts"] if x["concept_id"] == "boxy" for p in x["phrases"] if p["language"] == "en"][0]["phrase"]
+    c.post("/studio/api/vocabulary/remove_phrase", json={"concept_id": "boxy", "language": "en", "phrase": phrase}, headers=H)
+    bank_seed.seed()
+    check("a removed phrase stays removed after a restart", q("""SELECT removed FROM bank_concept_phrases
+        WHERE concept_id = 'boxy' AND language = 'en' AND phrase = %s""", (phrase,))[0][0], True)
+    r = c.post("/studio/api/vocabulary/add_phrase", json={"concept_id": "boxy", "language": "en", "phrase": "square-ish"}, headers=H)
+    check("add a phrase", r.status_code, 200)
+
+    conn = events._conn()
+    with conn, conn.cursor() as cur:
+        cur.execute("""INSERT INTO stylist_hunts (hunt_id, device_id, brief_structured, language, nothing_passed)
+                       VALUES ('h1', 'd1', '{"category": "outerwear", "unmatched_phrases": ["gorpcore"], "brands_asked": ["Arc Teryx"], "follow_ups": 1}', 'en', TRUE),
+                              ('h2', 'd1', '{"category": "outerwear", "follow_ups": 0}', 'en', FALSE)""")
+        cur.execute("UPDATE stylist_hunts SET created_at = now() - interval '5 minutes' WHERE hunt_id = 'h1'")
+        cur.execute("""INSERT INTO bank_gaps (signature, brief_structured, count) VALUES ('outerwear|gorpcore', '{"category": "outerwear"}', 3)""")
+    conn.close()
+    bl = c.get("/studio/api/backlog").json()
+    check("backlog: no-result briefs", [g["count"] for g in bl["no_results"]], [3])
+    check("backlog: words that matched nothing", [(u["phrase"], u["times"]) for u in bl["unmatched_phrases"]], [("gorpcore", 1)])
+    check("backlog: brands asked for but missing", [m["brand"] for m in bl["missing_brands"]], ["arc teryx"])
+    check("backlog: reworded hunts", [(r["category"], r["times"]) for r in bl["rewordings"]], [("outerwear", 1)])
+    hl = c.get("/studio/api/health").json()
+    check("health: recovered after no results", hl["zero_result_recovery"]["pct"], 100.0)
+    check("health: follow-ups per hunt", hl["follow_ups_per_hunt"], 0.5)
+    check("health: nothing disputed", hl["evidence_accuracy"]["disputed"], 0)
+
+    bank_fetch.FETCHER = _bank_fetcher(fail={BANK_URL["knit"]})
+    q("SELECT 1")
+    conn = events._conn()
+    with conn, conn.cursor() as cur:
+        cur.execute("UPDATE bank_products SET status = 'live' WHERE product_id = %s", (ids["knitwear"],))
+    conn.close()
+    bank_import.refresh(ids["knitwear"])
+    bank_fetch.FETCHER = _bank_fetcher()
+    src = c.get("/studio/api/sources").json()
+    check("sources: failing page listed", [(s["product_id"], s["failures_in_a_row"]) for s in src["failing"]],
+          [(ids["knitwear"], 1)])
+    r = c.post(f"/studio/api/products/{ids['knitwear']}/retire", json={}, headers=H)
+    check("retire a failing page", r.json()["status"], "retired")
+    check("...it leaves the Standards", q("SELECT count(*) FROM bank_standards WHERE product_id = %s", (ids["knitwear"],))[0][0], 0)
+    check("every change is logged", q("SELECT count(*) >= 10 FROM studio_log")[0][0], True)
+    c.post("/studio/logout", headers=H)
+    check("signed out: locked again", c.get("/studio/api/products").status_code, 401)
+    studio.reset_for_tests()
+    if saved_pw is None:
+        os.environ.pop("STUDIO_PASSWORD", None)
+    else:
+        os.environ["STUDIO_PASSWORD"] = saved_pw
+
+
 if __name__ == "__main__":
     test_parser()
     test_scoring()
@@ -2073,11 +2316,13 @@ if __name__ == "__main__":
     test_v31_shopper_voices()
     test_bank_stage1()
     test_bank_stage2()
+    test_bank_stage3()
     if __import__("os").environ.get("FILO_TEST_DATABASE_URL"):
         import events
         events.DATABASE_URL = __import__("os").environ["FILO_TEST_DATABASE_URL"]
         test_bank_stage1_postgres()
         test_bank_stage2_postgres()
+        test_bank_stage3_postgres()
         events.DATABASE_URL = ""
     print()
     if FAILS:

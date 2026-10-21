@@ -34,8 +34,11 @@ import bank
 import bank_seed
 import bank_import
 import bank_fx
+import studio
 
 app = FastAPI(title="Filo AI")
+# Filo Studio (stage 3): Brooklyn's private page at /studio. Off until STUDIO_PASSWORD is set in Railway.
+app.include_router(studio.router)
 
 
 @app.on_event("startup")
