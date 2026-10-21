@@ -2273,6 +2273,395 @@ def test_bank_stage3_postgres():
         os.environ["STUDIO_PASSWORD"] = saved_pw
 
 
+# ------------------------------------------------------------------ stage 4: search, ranking, catalogue
+
+def _fake_product(pid, brand="fake-brand-a", cat="t_shirt", comp=(("cotton", 100),), origin="Portugal",
+                  tags=(), price=50.0, colour="Optical White", avail="in_stock", score=80, sizes=("S", "M", "L"),
+                  opacity=None, indie=False, factory=None, resale=False, sale=None, checked_hours=1, status="live",
+                  decision="pass", approved=True, lining=None, weight=None, currency="CAD", search_text="",
+                  origin_status="confirmed", brand_name=None):
+    """A clearly fake product for the search tests. Never saved anywhere."""
+    from datetime import datetime, timedelta, timezone
+    checked = (datetime.now(timezone.utc) - timedelta(hours=checked_hours)).isoformat()
+    ev = lambda f: [f"{pid}:{f}"]
+    rec = {"product_id": pid, "brand_id": brand, "name": f"FAKE TEST PRODUCT {pid}", "category": cat,
+           "product_url": f"https://fake.test/{pid}", "images": [], "is_resale_listing": resale,
+           "materials": {"composition": {"value": [{"fibre": f, "percent": p} for f, p in comp], "status": "confirmed",
+                                         "source_type": "brand_reported", "scope": "this_style",
+                                         "evidence_ids": ev("comp")} if comp else {"value": None, "status": "unknown"}},
+           "construction": {"country_of_assembly": {"value": origin, "status": origin_status,
+                                                    "source_type": "brand_reported", "scope": "this_style",
+                                                    "evidence_ids": ev("origin")} if origin else {"value": None, "status": "unknown"}},
+           "fit": {"fit_tags": [{"tag": t, "fact": {"value": True, "status": st, "source_type": "brand_reported" if st == "confirmed" else "inferred",
+                                                    "scope": "this_style", "evidence_ids": ev("tag." + t)}}
+                                for t, st in [(x if isinstance(x, tuple) else (x, "confirmed")) for x in tags]]},
+           "filo": {"filo_score": score, "decision": decision, "is_independent_label": indie}}
+    if opacity:
+        val, st, src = opacity
+        rec["fit"]["opacity"] = {"value": val, "status": st, "source_type": src, "scope": "this_style", "evidence_ids": ev("opacity")}
+    if factory:
+        name, scope = factory
+        rec["construction"]["factory"] = {"value": name, "status": "confirmed", "source_type": "brand_reported",
+                                          "scope": scope, "evidence_ids": ev("factory")}
+    if lining:
+        rec["materials"]["lining"] = {"value": [{"fibre": f, "percent": p} for f, p in lining], "status": "confirmed",
+                                      "source_type": "brand_reported", "scope": "this_style", "evidence_ids": ev("lining")}
+    if weight:
+        rec["materials"]["fabric_weight"] = {"value": weight[0], "unit": weight[1], "status": "confirmed",
+                                             "source_type": "brand_reported", "scope": "this_style", "evidence_ids": ev("weight")}
+    variants = [{"variant_id": f"{pid}-{s}", "colour": colour, "size_label": s, "price": price, "currency": currency,
+                 "sale_price": sale, "price_cad": sale if sale is not None else price,
+                 "price_usd": round((sale if sale is not None else price) / 1.38, 2),
+                 "availability": avail, "ships_to": [], "last_checked": checked} for s in sizes]
+    return {"product_id": pid, "record": rec, "search_text": search_text, "decision": decision, "status": status,
+            "is_resale": resale, "variants": variants,
+            "brand": {"brand_id": brand, "name": brand_name or brand.replace("-", " ").title(), "approved": approved,
+                      "independent_label": indie, "unique_find": False, "style": ""}}
+
+
+class _FakeSource:
+    def __init__(self, products, standards=None, evidence=None):
+        self.products, self._standards, self._evidence = products, standards or {}, evidence or {}
+
+    def candidates(self, categories, resale_allowed):
+        return [p for p in self.products if (not categories or p["record"]["category"] in categories)]
+
+    def evidence(self, ids):
+        from datetime import datetime, timezone
+        out = {}
+        for p in self.products:
+            if p["product_id"] in ids:
+                for path in ("comp", "origin", "opacity", "factory", "lining", "weight") + tuple(
+                        "tag." + t["tag"] for t in p["record"]["fit"]["fit_tags"]):
+                    eid = f"{p['product_id']}:{path}"
+                    out[eid] = {"evidence_id": eid, "source_type": "brand_reported", "status": "current",
+                                "checked_at": datetime.now(timezone.utc), "quote": f"FAKE QUOTE {path}",
+                                "sample_size": None}
+        out.update(self._evidence)
+        return out
+
+    def standards(self, basic):
+        return self._standards.get(basic, [])
+
+
+def test_bank_stage4():
+    import json
+    import os
+    import random
+    import bank_catalog, bank_embed, bank_rules, events, stylist_brief, stylist_search as ss
+    print("\n=== bank stage 4: search and ranking on a fake bank ===")
+    saved_db, events.DATABASE_URL = events.DATABASE_URL, ""
+    F = _fake_product
+
+    def ids(r):
+        return [c["product_id"] for c in r["results"]]
+
+    # Hard filters, one at a time.
+    src = _FakeSource([F("tee-ok"), F("knit-1", cat="knitwear", comp=(("wool", 100),)),
+                       F("tee-sold", avail="out_of_stock"), F("tee-old", checked_hours=24 * 40),
+                       F("tee-syn", comp=(("polyester", 60), ("cotton", 40))), F("tee-low", score=55),
+                       F("tee-unapproved", approved=False), F("tee-review", status="in_review"),
+                       F("tee-resale", resale=True)])
+    r = ss.search({"category": "t_shirt"}, source=src, log_gap=False)
+    check("only live, approved, in-stock, fresh tees that pass Filo's rules", sorted(ids(r)), ["tee-ok"])
+    check("...and the funnel says why the rest went", r["funnel"],
+          {"stock": 1, "freshness": 1, "show_rule": 4, "resale": 1})
+    r = ss.search({"category": "t_shirt", "resale_allowed": True}, source=src, log_gap=False)
+    check("resale shows only when the shopper allows it", sorted(ids(r)), ["tee-ok", "tee-resale"])
+    check("knitwear asked: no tees", ids(ss.search({"category": "knitwear"}, source=src, log_gap=False)), ["knit-1"])
+
+    src = _FakeSource([F("t50", price=50, brand="b1"), F("t99", price=99.99, brand="b2"), F("t101", price=101, brand="b3"),
+                       F("tsale", price=130, sale=95, brand="b4")])
+    r = ss.search({"category": "t_shirt", "budget": {"amount": 100, "currency": "CAD", "hard_max": True}}, source=src, log_gap=False)
+    check("budget: nothing over $100, sale price counts", sorted(ids(r)), ["t50", "t99", "tsale"])
+    check("...no card over budget", all(c["price"] <= 100 for c in r["results"]), True)
+
+    src = _FakeSource([F("black", colour="Deep Black"), F("navy", colour="Navy"), F("asshown", colour="As shown")])
+    check("black means black, not navy", ids(ss.search({"category": "t_shirt", "colour": "black"}, source=src, log_gap=False)), ["black"])
+
+    src = _FakeSource([F("has-m", sizes=("S", "M")), F("no-m", sizes=("S", "L"))])
+    check("size must be in stock", ids(ss.search({"category": "t_shirt", "size": "M"}, source=src, log_gap=False)), ["has-m"])
+
+    src = _FakeSource([F("c100"), F("c95", comp=(("cotton", 95), ("elastane", 5))), F("lin", comp=(("linen", 100),))])
+    check("100% cotton means 100%", ids(ss.search({"category": "t_shirt", "material": ["cotton 100"]}, source=src, log_gap=False)), ["c100"])
+    check("'cotton' means mostly cotton", sorted(ids(ss.search({"category": "t_shirt", "material": ["cotton"]}, source=src, log_gap=False))),
+          ["c100", "c95"])
+
+    src = _FakeSource([F("coat-cot", cat="outerwear", comp=(("cotton", 100),)),
+                       F("coat-wool-lining", cat="outerwear", comp=(("cotton", 100),), lining=(("wool", 100),)),
+                       F("coat-wool", cat="outerwear", comp=(("wool", 80), ("polyamide", 20)))])
+    check("no animal materials: shell, lining and trims all checked",
+          ids(ss.search({"category": "outerwear", "exclude": ["animal_material"]}, source=src, log_gap=False)), ["coat-cot"])
+
+    src = _FakeSource([F("pt"), F("cn", origin="China"), F("unk", origin=None), F("raw", origin="TN", origin_status="unknown")])
+    check("made in Europe: only confirmed European origin", ids(ss.search({"category": "t_shirt", "origin": "europe"}, source=src, log_gap=False)), ["pt"])
+
+    src = _FakeSource([F("fac", factory=("Fake Factory Lda", "this_style")), F("brandwide", factory=("All our factories", "brand_wide")), F("none")])
+    check("supply chain proof must be for the product, not brand-wide",
+          ids(ss.search({"category": "t_shirt", "ethics": ["factory_transparency"]}, source=src, log_gap=False)), ["fac"])
+
+    src = _FakeSource([F("sheer", opacity=("sheer", "confirmed", "customer_reported")), F("ok")])
+    r = ss.search({"category": "t_shirt", "opacity": "not_sheer", "performance": ["opaque"]}, source=src, log_gap=False)
+    check("evidence that it's see-through removes it", "sheer" in ids(r), False)
+
+    # Evidence-gated musts: unknown only in the single trade-off slot.
+    src = _FakeSource([F("unk1"), F("unk2"), F("proven", opacity=("opaque", "confirmed", "customer_reported")),
+                       F("brand-says", opacity=("opaque", "confirmed", "brand_reported"))])
+    r = ss.search({"category": "t_shirt", "opacity": "not_sheer", "performance": ["opaque"]}, source=src, log_gap=False)
+    slots = {c["product_id"]: c["slot"] for c in r["results"]}
+    check("opacity proven by buyers: the pick", (slots.get("proven"), r["results"][0]["is_pick"]), ("best_overall", True))
+    check("opacity only brand-claimed or unknown: one trade-off at most", sum(1 for v in slots.values() if v == "trade_off"), 1)
+    check("...which names what's missing", [c.get("trade_off_note") for c in r["results"] if c["slot"] == "trade_off"],
+          ["No proof yet for: not see-through."])
+    src = _FakeSource([F("pricey-unk", price=200)])
+    r = ss.search({"category": "t_shirt", "opacity": "not_sheer", "budget": {"amount": 100, "hard_max": True, "currency": "CAD"}},
+                  source=src, log_gap=False)
+    check("the trade-off slot never covers a hard filter", r["results"], [])
+
+    # The three scores.
+    src = _FakeSource([F("boxy-c", tags=("boxy",)), F("boxy-p", tags=(("boxy", "from_photo"),)), F("plain")])
+    r = ss.search({"category": "t_shirt", "silhouette": ["boxy"]}, source=src, log_gap=False)
+    m = {c["product_id"]: c["scores"]["match"] for c in r["results"]}
+    check("match: confirmed cut beats a photo read, which beats nothing", m["boxy-c"] > m["boxy-p"], True)
+    check("...and nothing scores too low to earn a place", "plain" in m, False)
+    check("quality is Filo's score, unchanged", {c["product_id"]: c["scores"]["quality"] for c in r["results"]},
+          {"boxy-c": 80, "boxy-p": 80})
+    src = _FakeSource([F("with-origin"), F("no-origin", origin=None)])
+    r = ss.search({"category": "t_shirt"}, source=src, log_gap=False)
+    ev = {c["product_id"]: (c["scores"]["evidence"], c["scores"]["evidence_label"]) for c in r["results"]}
+    check("evidence: brand-stated fabric and origin is Medium", ev["with-origin"], (0.7, "Medium"))
+    check("evidence: unknown origin drags it to Low", ev["no-origin"], (0.35, "Low"))
+    check("within 5 match points, better evidence ranks first", ids(r), ["with-origin", "no-origin"])
+    check("exactly one Stylist's pick", sum(c["is_pick"] for c in r["results"]), 1)
+    check("every claim on a card has evidence", r["problems"], [])
+
+    # Diversity.
+    many = [F(f"a{i}", brand="big-brand", price=50 + i) for i in range(6)] + \
+           [F(f"b{i}", brand="other-brand", price=80 + i) for i in range(3)] + [F("c0", brand="third-brand", price=120)]
+    r = ss.search({"category": "t_shirt", "colour": "white", "count": 5}, source=_FakeSource(many), log_gap=False)
+    from collections import Counter
+    per = Counter(c["brand_id"] for c in r["results"])
+    check("five white tees: at most 2 per brand", max(per.values()), 2)
+    check("...at least two price points", len({round(c["price"], -1) for c in r["results"]}) >= 2, True)
+    r = ss.search({"category": "t_shirt", "count": 15}, source=_FakeSource(many), log_gap=False)
+    check("fifteen: at most 3 per brand", max(Counter(c["brand_id"] for c in r["results"]).values()), 3)
+    check("...and says when fewer than asked passed", r["fewer_than_asked"], len(r["results"]))
+    src = _FakeSource([F("big1", brand="big-brand", price=60), F("big2", brand="big-brand", price=70),
+                       F("indie1", brand="tiny-label", indie=True, price=65)])
+    r = ss.search({"category": "t_shirt"}, source=src, log_gap=False)
+    check("an independent label within 5 points gets its own slot",
+          [c["slot"] for c in r["results"] if c["product_id"] == "indie1"], ["best_independent"])
+
+    # No match.
+    src = _FakeSource([F("t40", price=40), F("t60", price=60)])
+    r = ss.search({"category": "t_shirt", "colour": "white", "budget": {"amount": 10, "hard_max": True, "currency": "CAD"}},
+                  source=src, log_gap=False)
+    check("white tee under $10: nothing passes", (r["nothing_passed"], r["results"]), (True, []))
+    check("...says budget is what removed them, and the lowest price", r["flex_options"],
+          [{"filter": "budget", "would_pass": 2, "lowest_price": 40.0, "currency": "CAD"}])
+    r = stylist_search_hunt = ss.hunt("oversized slim-fit jeans", source=src)
+    check("contradictory brief: asks instead of guessing", (r.get("needs_question"), r["conflicts"]), (True, [["oversized", "slim"]]))
+
+    # Standards.
+    std = {"white_t_shirt": [{"slot": "best_overall", "rank": 1, "product_id": "s1", "note": "The one.", "price_line": None},
+                             {"slot": "best_under", "rank": 1, "product_id": "s2", "note": None, "price_line": 60},
+                             {"slot": "best_splurge", "rank": 1, "product_id": "s3-sold", "note": None, "price_line": None}]}
+    src = _FakeSource([F("s1", price=90), F("s2", price=45), F("s3-sold", price=200, avail="out_of_stock"), F("other")], standards=std)
+    r = ss.search(stylist_brief.parse("I just need a good white t-shirt"), source=src, log_gap=False)
+    check("standard mode uses Brooklyn's Standards", (r["mode"], ids(r)), ("standard", ["s1", "s2"]))
+    check("...a sold-out Standard is skipped", "s3-sold" in ids(r), False)
+    check("...her note travels with the pick", r["results"][0].get("stylist_note"), "The one.")
+
+    # Meaning search, without a key: style words.
+    src = _FakeSource([F("chore", cat="outerwear", search_text="A sturdy chore jacket in cotton drill with patch pockets."),
+                       F("blazer", cat="outerwear", search_text="A soft romantic blazer with puff sleeves.")])
+    r = ss.search({"category": "outerwear", "aesthetic": ["workwear"], "vibe_text": "something workwear, utility"}, source=src, log_gap=False)
+    check("vibe without a key: workwear finds the chore jacket first", ids(r)[0], "chore")
+    # With a key: fingerprints.
+    os.environ["VOYAGE_API_KEY"] = "test-not-a-real-key"
+    real_call, real_vectors = bank_embed.EMBED_CALL, bank_embed.vectors
+    bank_embed.query_vector.cache_clear()
+    bank_embed.EMBED_CALL = lambda texts, kind: [[1.0, 0.0, 0.0] for _ in texts]
+    bank_embed.vectors = lambda pids: {"chore": [0.1, 1.0, 0.0], "blazer": [1.0, 0.05, 0.0]}
+    r = ss.search({"category": "outerwear", "vibe_text": "quiet, a bit French"}, source=src, log_gap=False)
+    check("vibe with a key: the closest fingerprint wins", ids(r)[0], "blazer")
+    bank_embed.EMBED_CALL, bank_embed.vectors = real_call, real_vectors
+    bank_embed.query_vector.cache_clear()
+    os.environ.pop("VOYAGE_API_KEY", None)
+
+    # Reading requests.
+    b = stylist_brief.parse("white tee boxy not see thru under 100")
+    check("fragment: white boxy tee, not see-through, under 100",
+          (b["category"], b["colour"], b["silhouette"], b["opacity"], b["budget"]["amount"]),
+          ("t_shirt", "white", ["boxy"], "not_sheer", 100.0))
+    check("typos: jeens for my hipps", (stylist_brief.parse("jeens for my hipps that dont gape at the back")["category"],
+                                        stylist_brief.parse("jeens for my hipps that dont gape at the back")["fit_need"]),
+          ("denim", ["waist_hip_ratio"]))
+    b = stylist_brief.parse("15 lambskin leather jackets, drop shoulder, cropped, made in Europe")
+    check("the big brief", (b["count"], b["material"], sorted(b["silhouette"]), b["origin"]),
+          (15, ["leather: lambskin"], ["cropped", "drop_shoulder"], "europe"))
+    b = stylist_brief.parse("100% cotton t-shirt, lightweight, not see-through, cropped, a bit loose, flattering for a bigger chest")
+    check("the bigger-chest tee", (b["material"], sorted(b["performance"]), sorted(b["silhouette"]), b["fit_need"]),
+          (["cotton 100"], ["lightweight", "opaque"], ["cropped", "relaxed"], ["room_through_bust"]))
+    check("'no animal materials'", stylist_brief.parse("no animal materials, a warm winter coat")["exclude"], ["animal_material"])
+    check("winter isn't a colour", "colour" in stylist_brief.parse("no animal materials, a warm winter coat"), False)
+    check("'I just need a good white t-shirt' is standard mode",
+          (stylist_brief.parse("I just need a good white t-shirt")["mode"], stylist_brief.parse("I just need a good white t-shirt")["basic"]),
+          ("standard", "white_t_shirt"))
+    check("a sheer tee isn't turned into not-sheer", "opacity" in stylist_brief.parse("a sheer white tee"), False)
+    check("words it can't place are listed for the backlog", stylist_brief.parse("a sequin evening gown")["unmatched_phrases"],
+          ["sequin", "evening", "gown"])
+
+    # The rules that sort a catalogue.
+    good = F("rule-good", comp=(("cotton", 100),))["record"]
+    good["variants"] = [{"availability": "in_stock", "price": {"amount": 50.0, "currency": "CAD"}, "price_cad": 50.0}]
+    good["materials"]["composition"]["value"] = [{"fibre": "cotton", "percent": 100}]
+    class R: 
+        def __init__(self, x): self.x = x
+        def random(self): return self.x
+    a = bank_rules.auto_decide(good, True, R(0.5))
+    check("clear case: live, decided by the rules", (a["status"], a["decided_by"], a["spot_check"]), ("live", "rules", False))
+    check("...some go to spot checks", bank_rules.auto_decide(good, True, R(0.01))["spot_check"], True)
+    check("...brand not approved: held", bank_rules.auto_decide(good, False, R(0.5))["outcome"], "held")
+    sold = json.loads(json.dumps(good)); sold["variants"][0]["availability"] = "out_of_stock"
+    check("...sold out: live but hidden", bank_rules.auto_decide(sold, True, R(0.5))["status"], "hidden_out_of_stock")
+    unk = json.loads(json.dumps(good)); unk["variants"][0]["availability"] = "unknown"
+    check("...stock not stated: waits for Brooklyn", bank_rules.auto_decide(unk, True, R(0.5))["outcome"], "review")
+    border = json.loads(json.dumps(good)); border["category"] = "knitwear"
+    border["materials"]["composition"]["value"] = [{"fibre": "wool", "percent": 60}, {"fibre": "polyamide", "percent": 40}]
+    check("...40% synthetic that passes the floor: waits for Brooklyn", bank_rules.auto_decide(border, True, R(0.5))["outcome"], "review")
+    ins = json.loads(json.dumps(good)); ins["filo"]["decision"] = "insufficient_evidence"
+    check("...not enough on the page: waiting", bank_rules.auto_decide(ins, True, R(0.5))["outcome"], "waiting")
+    os.environ["BANK_AUTO_APPROVE"] = "0"
+    check("automatic approval switched off: everything waits", bank_rules.auto_decide(good, True, R(0.5))["outcome"], "review")
+    os.environ.pop("BANK_AUTO_APPROVE")
+
+    check("store link keeps the Canadian folder", bank_catalog.store_base("https://colorfulstandard.com/en-ca/collections/women"),
+          "https://colorfulstandard.com/en-ca")
+    check("women's kept", bank_catalog.gender_ok("Women Tee", "", "", [], "women_and_men", False), (True, "women"))
+    check("men's skipped", bank_catalog.gender_ok("Heavy Tee", "", "Men's T-Shirts", [], "women_and_men", False), (False, "men"))
+    check("unclear skipped unless the brand only makes women's",
+          (bank_catalog.gender_ok("Heavy Tee", "", "", [], "women_and_men", False)[0],
+           bank_catalog.gender_ok("Heavy Tee", "", "", [], None, True)[0]), (False, True))
+    events.DATABASE_URL = saved_db
+
+
+def test_bank_stage4_postgres():
+    import json, os, secrets
+    import bank, bank_catalog, bank_fetch, bank_import, bank_seed, events, studio, stylist_search
+    print("\n=== bank stage 4: catalogue import and search on a real Postgres ===")
+    here = os.path.join(os.path.dirname(os.path.abspath(__file__)), "test_fixtures", "catalog")
+    _bank_setup()
+    conn = events._conn()
+    with conn, conn.cursor() as cur:
+        cur.execute("DROP TABLE IF EXISTS " + ", ".join(bank.TABLES) + " CASCADE")
+    conn.close()
+    bank.init_schema()
+    bank_seed.seed()
+    base = "https://colorfulstandard.com/en-ca"
+    files = {f"{base}/products.json?limit=250&page=1": "products_page1.json",
+             f"{base}/products.json?limit=250&page=2": "products_page2.json", f"{base}/cart.js": "cart.json"}
+    overrides = {u: open(os.path.join(here, f)).read() for u, f in files.items()}
+    bank_fetch.FETCHER = _bank_fetcher(overrides)
+
+    def q(sql, args=()):
+        conn = events._conn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(sql, args)
+                return cur.fetchall()
+        finally:
+            conn.close()
+    try:
+        bank_catalog.start("peregrine-not-a-brand", base, background=False)
+        refused = False
+    except ValueError:
+        refused = True
+    check("unknown brand refused", refused, True)
+    r = bank_catalog.start("colorful-standard", base + "/collections/women", background=False)
+    job = bank_catalog.jobs(1)[0]
+    c = job["counts"]
+    check("catalogue job finished, read through Shopify", (job["status"], job["method"], job["found"]), ("done", "shopify", 8))
+    check("...sorted by the rules", {k: v for k, v in c.items() if v and k != "spot_check"},
+          {"live": 2, "review": 1, "held": 1, "waiting": 1, "skipped_men": 1, "skipped_not_clothing": 1,
+           "skipped_other_brand": 1})
+    rows = dict(q("SELECT name, status || '/' || coalesce(decided_by, '-') FROM bank_products"))
+    check("the clear cases went live, decided by the rules",
+          (rows["Women Fake Test Organic Tee"], rows["Women Fake Test Merino Sweater"]), ("live/rules", "live/rules"))
+    check("40% synthetic knit waits for Brooklyn", rows["Women Fake Test Wool Blend Cardigan"], "in_review/-")
+    check("polyester jacket held back", rows["Women Fake Test Rain Jacket"], "draft/-")
+    check("no fabric on the page: waiting", rows["Women Fake Test Mystery Tee"], "draft/-")
+    check("why it waits is recorded", q("SELECT auto_reasons FROM bank_products WHERE name = 'Women Fake Test Wool Blend Cardigan'")[0][0],
+          ["40% synthetic, close to the limit."])
+    check("prices in the store's currency", q("""SELECT DISTINCT v.currency FROM bank_variants v JOIN bank_products p
+                                                 USING (product_id) WHERE p.name = 'Women Fake Test Organic Tee'""")[0][0], "CAD")
+    tee = q("SELECT product_id FROM bank_products WHERE name = 'Women Fake Test Organic Tee'")[0][0]
+    knit = q("SELECT product_id FROM bank_products WHERE name = 'Women Fake Test Merino Sweater'")[0][0]
+
+    r = stylist_search.hunt("boxy white tee under 60")
+    check("a hunt finds the live tee", [c["product_id"] for c in r["results"]], [tee])
+    card = r["results"][0]
+    check("...with its quote as proof", [cl["quote"] for cl in card["claims"] if cl["requirement"] == "composition"],
+          ["100% organic cotton, 180 gsm."])
+    check("...origin confirmed from the page", [cl["value"] for cl in card["claims"] if cl["requirement"] == "origin"], ["Portugal"])
+    check("...the cut matched", any(cl["requirement"] == "boxy" for cl in card["claims"]), True)
+    check("...nothing wrong with the card", r["problems"], [])
+    r = stylist_search.hunt("black boxy tee")
+    check("black is sold out: nothing passes, and it says why", (r["nothing_passed"], r["funnel"].get("stock")), (True, 1))
+    check("...and the gap is logged for the backlog", q("SELECT count(*) FROM bank_gaps")[0][0] >= 1, True)
+    r = stylist_search.hunt("navy knit made in Italy")
+    check("made in Italy knit found", [c["product_id"] for c in r["results"]], [knit])
+
+    q("SELECT 1")
+    conn = events._conn()
+    with conn, conn.cursor() as cur:
+        cur.execute("UPDATE bank_products SET decided_by = 'brooklyn' WHERE product_id = %s", (knit,))
+    conn.close()
+    bank_catalog.start("colorful-standard", base, background=False)
+    check("re-running a catalogue never overrides Brooklyn", q("SELECT decided_by FROM bank_products WHERE product_id = %s", (knit,))[0][0],
+          "brooklyn")
+    check("...and says so", bank_catalog.jobs(1)[0]["counts"]["kept_brooklyn"], 1)
+
+    page = ('<html><body><script src="https://cdn.shopify.com/x.js"></script><h1>Women Fake Test Organic Tee</h1>'
+            '<p>FAKE TEST PRODUCT.</p><p>60% cotton, 40% polyester.</p><p>Made in Portugal.</p></body></html>')
+    bank_fetch.FETCHER = _bank_fetcher({**overrides, f"{base}/products/women-fake-test-organic-tee": page,
+                                        f"{base}/products/women-fake-test-organic-tee.js": json.dumps(
+                                            json.load(open(os.path.join(here, "products_page1.json")))["products"][0] |
+                                            {"body_html": "<p>FAKE TEST PRODUCT.</p><p>60% cotton, 40% polyester.</p><p>Made in Portugal.</p>"})})
+    r = bank_import.refresh(tee)
+    check("the rules' own product turns 40% polyester: the rules look again and hold it back", (r["changed"], q(
+        "SELECT status, decided_by FROM bank_products WHERE product_id = %s", (tee,))[0]), (True, ("draft", None)))
+    bank_fetch.FETCHER = _bank_fetcher()
+
+    pw = "test-" + secrets.token_hex(8)
+    saved_pw = os.environ.get("STUDIO_PASSWORD")
+    os.environ["STUDIO_PASSWORD"] = pw
+    studio.reset_for_tests()
+    try:
+        from fastapi.testclient import TestClient
+        import main
+        cl = TestClient(main.app, base_url="https://testserver")
+        H = {"X-Studio": "1"}
+        cl.post("/studio/login", json={"password": pw}, headers=H)
+        r = cl.post("/studio/api/hunt", json={"text": "relaxed navy sweater", "market": "CA"}, headers=H)
+        check("Studio test hunt works", (r.status_code, [c["product_id"] for c in r.json()["results"]]), (200, [knit]))
+        r = cl.post("/studio/api/catalog/start", json={"brand_id": "patagonia"}, headers=H)
+        check("catalogue for an unapproved brand is refused", r.status_code, 400)
+        r = cl.get("/studio/api/catalog")
+        check("Studio lists catalogue jobs", (r.status_code, len(r.json()["jobs"])), (200, 2))
+        r = cl.get("/studio/api/products?status=rules")
+        check("Studio filter: approved by the rules", (r.status_code, r.json()["by_status"].get("rules")),
+              (200, q("SELECT count(*) FROM bank_products WHERE decided_by = 'rules'")[0][0]))
+        check("admin search route is locked", cl.post("/internal/stylist/search", json={"text": "tee"}).status_code, 404)
+    except ImportError:
+        print("  (skipped: pip install httpx to run the Studio web checks)")
+    studio.reset_for_tests()
+    if saved_pw is None:
+        os.environ.pop("STUDIO_PASSWORD", None)
+    else:
+        os.environ["STUDIO_PASSWORD"] = saved_pw
+
+
 if __name__ == "__main__":
     test_parser()
     test_scoring()
@@ -2317,12 +2706,14 @@ if __name__ == "__main__":
     test_bank_stage1()
     test_bank_stage2()
     test_bank_stage3()
+    test_bank_stage4()
     if __import__("os").environ.get("FILO_TEST_DATABASE_URL"):
         import events
         events.DATABASE_URL = __import__("os").environ["FILO_TEST_DATABASE_URL"]
         test_bank_stage1_postgres()
         test_bank_stage2_postgres()
         test_bank_stage3_postgres()
+        test_bank_stage4_postgres()
         events.DATABASE_URL = ""
     print()
     if FAILS:

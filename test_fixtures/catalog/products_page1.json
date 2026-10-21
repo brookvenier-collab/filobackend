@@ -1,0 +1,365 @@
+{
+ "products": [
+  {
+   "id": 1,
+   "title": "Women Fake Test Organic Tee",
+   "handle": "women-fake-test-organic-tee",
+   "vendor": "Colorful Standard",
+   "product_type": "Women's T-Shirts",
+   "tags": [
+    "women"
+   ],
+   "body_html": "<p>FAKE TEST PRODUCT.</p><p>100% organic cotton, 180 gsm.</p><p>Made in Portugal.</p><p>Boxy fit, slightly cropped.</p>",
+   "options": [
+    {
+     "name": "Color",
+     "position": 1,
+     "values": []
+    },
+    {
+     "name": "Size",
+     "position": 2,
+     "values": []
+    }
+   ],
+   "variants": [
+    {
+     "id": 11,
+     "title": "Optical White / S",
+     "option1": "Optical White",
+     "option2": "S",
+     "option3": null,
+     "sku": "FAKE-11",
+     "available": true,
+     "price": "48.00",
+     "compare_at_price": null
+    },
+    {
+     "id": 12,
+     "title": "Optical White / M",
+     "option1": "Optical White",
+     "option2": "M",
+     "option3": null,
+     "sku": "FAKE-12",
+     "available": true,
+     "price": "48.00",
+     "compare_at_price": null
+    },
+    {
+     "id": 13,
+     "title": "Deep Black / M",
+     "option1": "Deep Black",
+     "option2": "M",
+     "option3": null,
+     "sku": "FAKE-13",
+     "available": false,
+     "price": "48.00",
+     "compare_at_price": null
+    }
+   ],
+   "images": [
+    {
+     "src": "//cdn.shopify.com/fake/1.jpg"
+    }
+   ]
+  },
+  {
+   "id": 2,
+   "title": "Men Fake Test Heavy Tee",
+   "handle": "men-fake-test-heavy-tee",
+   "vendor": "Colorful Standard",
+   "product_type": "Men's T-Shirts",
+   "tags": [
+    "men"
+   ],
+   "body_html": "<p>FAKE TEST PRODUCT. 100% cotton. Made in Portugal.</p>",
+   "options": [
+    {
+     "name": "Color",
+     "position": 1,
+     "values": []
+    },
+    {
+     "name": "Size",
+     "position": 2,
+     "values": []
+    }
+   ],
+   "variants": [
+    {
+     "id": 21,
+     "title": "White / L",
+     "option1": "White",
+     "option2": "L",
+     "option3": null,
+     "sku": "FAKE-21",
+     "available": true,
+     "price": "52.00",
+     "compare_at_price": null
+    }
+   ],
+   "images": [
+    {
+     "src": "//cdn.shopify.com/fake/2.jpg"
+    }
+   ]
+  },
+  {
+   "id": 3,
+   "title": "Women Fake Test Rain Jacket",
+   "handle": "women-fake-test-rain-jacket",
+   "vendor": "Colorful Standard",
+   "product_type": "Women's Jackets",
+   "tags": [
+    "women"
+   ],
+   "body_html": "<p>FAKE TEST PRODUCT. 100% polyester. Made in China.</p>",
+   "options": [
+    {
+     "name": "Color",
+     "position": 1,
+     "values": []
+    },
+    {
+     "name": "Size",
+     "position": 2,
+     "values": []
+    }
+   ],
+   "variants": [
+    {
+     "id": 31,
+     "title": "Black / M",
+     "option1": "Black",
+     "option2": "M",
+     "option3": null,
+     "sku": "FAKE-31",
+     "available": true,
+     "price": "180.00",
+     "compare_at_price": null
+    }
+   ],
+   "images": [
+    {
+     "src": "//cdn.shopify.com/fake/3.jpg"
+    }
+   ]
+  },
+  {
+   "id": 4,
+   "title": "Women Fake Test Mystery Tee",
+   "handle": "women-fake-test-mystery-tee",
+   "vendor": "Colorful Standard",
+   "product_type": "Women's T-Shirts",
+   "tags": [
+    "women"
+   ],
+   "body_html": "<p>FAKE TEST PRODUCT. Our softest tee yet.</p>",
+   "options": [
+    {
+     "name": "Color",
+     "position": 1,
+     "values": []
+    },
+    {
+     "name": "Size",
+     "position": 2,
+     "values": []
+    }
+   ],
+   "variants": [
+    {
+     "id": 41,
+     "title": "White / M",
+     "option1": "White",
+     "option2": "M",
+     "option3": null,
+     "sku": "FAKE-41",
+     "available": true,
+     "price": "40.00",
+     "compare_at_price": null
+    }
+   ],
+   "images": [
+    {
+     "src": "//cdn.shopify.com/fake/4.jpg"
+    }
+   ]
+  },
+  {
+   "id": 5,
+   "title": "Fake Test Socks",
+   "handle": "fake-test-socks",
+   "vendor": "Colorful Standard",
+   "product_type": "Accessories",
+   "tags": [
+    "unisex"
+   ],
+   "body_html": "<p>FAKE TEST PRODUCT. 80% cotton, 20% polyamide.</p>",
+   "options": [
+    {
+     "name": "Color",
+     "position": 1,
+     "values": []
+    },
+    {
+     "name": "Size",
+     "position": 2,
+     "values": []
+    }
+   ],
+   "variants": [
+    {
+     "id": 51,
+     "title": "White / One size",
+     "option1": "White",
+     "option2": "One size",
+     "option3": null,
+     "sku": "FAKE-51",
+     "available": true,
+     "price": "15.00",
+     "compare_at_price": null
+    }
+   ],
+   "images": [
+    {
+     "src": "//cdn.shopify.com/fake/5.jpg"
+    }
+   ]
+  },
+  {
+   "id": 6,
+   "title": "Women Fake Test Merino Sweater",
+   "handle": "women-fake-test-merino-sweater",
+   "vendor": "Colorful Standard",
+   "product_type": "Women's Knitwear",
+   "tags": [
+    "women"
+   ],
+   "body_html": "<p>FAKE TEST PRODUCT.</p><p>100% merino wool.</p><p>Made in Italy.</p><p>Relaxed fit.</p>",
+   "options": [
+    {
+     "name": "Color",
+     "position": 1,
+     "values": []
+    },
+    {
+     "name": "Size",
+     "position": 2,
+     "values": []
+    }
+   ],
+   "variants": [
+    {
+     "id": 61,
+     "title": "Navy / S",
+     "option1": "Navy",
+     "option2": "S",
+     "option3": null,
+     "sku": "FAKE-61",
+     "available": true,
+     "price": "140.00",
+     "compare_at_price": null
+    },
+    {
+     "id": 62,
+     "title": "Navy / M",
+     "option1": "Navy",
+     "option2": "M",
+     "option3": null,
+     "sku": "FAKE-62",
+     "available": true,
+     "price": "140.00",
+     "compare_at_price": null
+    }
+   ],
+   "images": [
+    {
+     "src": "//cdn.shopify.com/fake/6.jpg"
+    }
+   ]
+  },
+  {
+   "id": 7,
+   "title": "Women Fake Test Wool Blend Cardigan",
+   "handle": "women-fake-test-wool-blend-cardigan",
+   "vendor": "Colorful Standard",
+   "product_type": "Women's Knitwear",
+   "tags": [
+    "women"
+   ],
+   "body_html": "<p>FAKE TEST PRODUCT.</p><p>60% wool, 40% polyamide.</p><p>Made in Italy.</p>",
+   "options": [
+    {
+     "name": "Color",
+     "position": 1,
+     "values": []
+    },
+    {
+     "name": "Size",
+     "position": 2,
+     "values": []
+    }
+   ],
+   "variants": [
+    {
+     "id": 71,
+     "title": "Black / M",
+     "option1": "Grey",
+     "option2": "M",
+     "option3": null,
+     "sku": "FAKE-71",
+     "available": true,
+     "price": "120.00",
+     "compare_at_price": null
+    }
+   ],
+   "images": [
+    {
+     "src": "//cdn.shopify.com/fake/7.jpg"
+    }
+   ]
+  },
+  {
+   "id": 8,
+   "title": "Fake Test Other Brand Tee",
+   "handle": "fake-test-other-brand-tee",
+   "vendor": "Somebody Else",
+   "product_type": "T-Shirts",
+   "tags": [
+    "women"
+   ],
+   "body_html": "<p>FAKE TEST PRODUCT. 100% cotton. Made in Portugal.</p>",
+   "options": [
+    {
+     "name": "Color",
+     "position": 1,
+     "values": []
+    },
+    {
+     "name": "Size",
+     "position": 2,
+     "values": []
+    }
+   ],
+   "variants": [
+    {
+     "id": 81,
+     "title": "White / M",
+     "option1": "White",
+     "option2": "M",
+     "option3": null,
+     "sku": "FAKE-81",
+     "available": true,
+     "price": "30.00",
+     "compare_at_price": null
+    }
+   ],
+   "images": [
+    {
+     "src": "//cdn.shopify.com/fake/8.jpg"
+    }
+   ]
+  }
+ ]
+}

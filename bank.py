@@ -280,6 +280,28 @@ CREATE TABLE IF NOT EXISTS studio_log (
     subject TEXT,
     detail  JSONB
 );
+-- Stage 4: catalogue import, automatic sorting, search
+ALTER TABLE bank_products ADD COLUMN IF NOT EXISTS auto_reasons JSONB NOT NULL DEFAULT '[]';
+ALTER TABLE bank_products ADD COLUMN IF NOT EXISTS search_text TEXT;
+CREATE TABLE IF NOT EXISTS bank_catalog_jobs (
+    job_id      TEXT PRIMARY KEY,
+    brand_id    TEXT NOT NULL REFERENCES bank_brands(brand_id),
+    store_url   TEXT NOT NULL,
+    method      TEXT,
+    status      TEXT NOT NULL DEFAULT 'queued' CHECK (status IN ('queued','running','done','failed','stopped')),
+    found       INTEGER NOT NULL DEFAULT 0,
+    counts      JSONB NOT NULL DEFAULT '{}',
+    error       TEXT,
+    started_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    finished_at TIMESTAMPTZ
+);
+CREATE TABLE IF NOT EXISTS bank_embeddings (
+    product_id      TEXT PRIMARY KEY REFERENCES bank_products(product_id) ON DELETE CASCADE,
+    model           TEXT NOT NULL,
+    text_hash       TEXT NOT NULL,
+    vector          REAL[] NOT NULL,
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 """
 
 TABLES = (
@@ -288,6 +310,7 @@ TABLES = (
     "bank_concept_phrases", "bank_concept_relations", "bank_standards",
     "bank_gaps", "bank_sources_log", "stylist_hunts", "stylist_results",
     "stylist_actions", "stylist_usage", "fit_preferences", "studio_log",
+    "bank_catalog_jobs", "bank_embeddings",
 )
 
 BRIEF_TEXT_DAYS = 90

@@ -106,7 +106,7 @@ $('#go').onclick=async()=>{
 $('#pw').onkeydown=e=>{if(e.key==='Enter')$('#go').click();};
 $('#out').onclick=async()=>{await api('/studio/logout',{});showLogin('Signed out.');};
 
-const TABS=[['products','Products'],['brands','Brands'],['standards','Standards'],['vocabulary','Vocabulary'],['backlog','Backlog'],['health','Health'],['sources','Sources']];
+const TABS=[['hunt','Test hunt'],['products','Products'],['brands','Brands'],['standards','Standards'],['vocabulary','Vocabulary'],['backlog','Backlog'],['health','Health'],['sources','Sources']];
 let curTab='';
 function tab(name,arg){
   if(!TABS.find(t=>t[0]===name))name='products';
@@ -114,7 +114,7 @@ function tab(name,arg){
   $('#tabs').innerHTML=TABS.map(([k,l])=>`<button class="${k===name?'on':''}" data-t="${k}">${l}</button>`).join('');
   document.querySelectorAll('#tabs button').forEach(b=>b.onclick=()=>tab(b.dataset.t));
   $('#view').innerHTML='<p class="muted">Loading…</p>';
-  ({products:viewProducts,brands:viewBrands,standards:viewStandards,vocabulary:viewVocab,backlog:viewBacklog,health:viewHealth,sources:viewSources})[name](arg).catch(e=>say(e.message,true));
+  ({hunt:viewHunt,products:viewProducts,brands:viewBrands,standards:viewStandards,vocabulary:viewVocab,backlog:viewBacklog,health:viewHealth,sources:viewSources})[name](arg).catch(e=>say(e.message,true));
 }
 
 /* ---------------- products ---------------- */
@@ -122,7 +122,7 @@ let pFilter={status:'',q:''};
 async function viewProducts(){
   const d=await api(`/studio/api/products?status=${encodeURIComponent(pFilter.status)}&q=${encodeURIComponent(pFilter.q)}`);
   const counts=d.by_status||{};
-  const chips=[['','All'],...Object.keys(PSTATUS).map(k=>[k,PSTATUS[k]])].map(([k,l])=>
+  const chips=[['','All'],...Object.keys(PSTATUS).map(k=>[k,PSTATUS[k]]),['rules','Approved by the rules'],['spot','Spot checks']].map(([k,l])=>
     `<button class="${pFilter.status===k?'':'ghost'}" data-s="${k}">${esc(l)}${k&&counts[k]?' ('+counts[k]+')':''}</button>`).join('');
   $('#view').innerHTML=`
   <div class="panel"><h2>Import a product</h2>
@@ -133,7 +133,7 @@ async function viewProducts(){
   <div class="panel" style="padding:6px 8px">${d.products.length?`<table><tr><th>Product</th><th>Status</th><th>Decision</th><th>Price</th><th>Checked</th></tr>
   ${d.products.map(p=>`<tr class="click" data-id="${esc(p.product_id)}"><td><b>${esc(p.brand)}</b> ${esc(p.name)}${p.unique_find?' <span class="pill">Unique find</span>':''}<div class="small muted">${words(p.category)}${p.retailer?' · '+esc(p.retailer):''}${p.brand_approved?'':' · brand not approved'}</div></td>
     <td><span class="pill ${esc(p.status)}">${esc(PSTATUS[p.status]||p.status)}</span></td>
-    <td>${p.decision?`<span class="pill ${esc(p.decision)}">${esc(DECISION[p.decision])}</span>`:''}<div class="small muted">${p.decided_by?'Confirmed by you':'Suggested'}</div></td>
+    <td>${p.decision?`<span class="pill ${esc(p.decision)}">${esc(DECISION[p.decision])}</span>`:''}<div class="small muted">${p.decided_by==='brooklyn'?'Confirmed by you':p.decided_by==='rules'?'Approved by the rules':'Suggested'}</div>${p.spot_check?'<span class="pill in_review">Spot check</span>':''}</td>
     <td>${money(p.price,p.currency)}${p.price_cad&&p.currency!=='CAD'?`<div class="small muted">${money(p.price_cad,'CAD')}</div>`:''}</td>
     <td class="small muted">${when(p.last_checked)}</td></tr>`).join('')}</table>`:'<p class="muted">No products yet.</p>'}</div>`;
   document.querySelectorAll('[data-s]').forEach(b=>b.onclick=()=>{pFilter.status=b.dataset.s;viewProducts();});
@@ -172,11 +172,13 @@ async function viewProduct(id){
     <h2>${esc(r.name)}</h2>
     <div class="row"><span class="pill ${esc(d.status)}">${esc(PSTATUS[d.status]||d.status)}</span>
       ${d.decision?`<span class="pill ${esc(d.decision)}">${esc(DECISION[d.decision])}</span>`:''}
-      <span class="small muted">${d.decided_by?'Decision confirmed by you':'Decision is a suggestion'}</span>
+      <span class="small muted">${d.decided_by==='brooklyn'?'Decision confirmed by you':d.decided_by==='rules'?'Approved by the rules':'Decision is a suggestion'}</span>
       ${link(d.product_url,'Open the page')}${r.retailer?' <span class="small muted">sold by '+esc(r.retailer)+'</span>':''}</div>
     <p>${esc(f.decision_reason||'')}</p>
     ${(f.missing_evidence||[]).length?`<p class="small muted">Missing: ${esc(f.missing_evidence.join('; '))}</p>`:''}
     ${f.filo_score!=null?`<p class="small">Filo score ${esc(f.filo_score)}${f.fair_price_verdict?' · '+esc(f.fair_price_verdict):''}</p>`:''}
+    ${d.spot_check?`<div class="note"><b>Spot check.</b> The rules put this live on their own. If it looks right, confirm it; if not, take it down or put it on hold.</div>`:''}
+    ${(d.auto_reasons||[]).length&&d.status!=='live'?`<div class="note"><b>Why the rules didn't put it live:</b> ${esc(d.auto_reasons.join(' '))}</div>`:''}
     ${d.go_live_problems.length?`<div class="problems"><b>Can't go live yet:</b> ${esc(d.go_live_problems.join(' '))}</div>`:''}
     ${d.stock_note?`<div class="note">${esc(d.stock_note)}</div>`:''}
     <h3>Your decision</h3>
@@ -242,8 +244,9 @@ function researchHtml(items){
 async function viewBrands(){
   const qs=new URLSearchParams(bFilter).toString();
   const d=await api('/studio/api/brands?'+qs);const fc=d.facets||{};
+  setTimeout(jobsPanel,0);
   const sel=(k,opts)=>`<select data-f="${k}">${opts.map(([v,l])=>`<option value="${esc(v)}" ${bFilter[k]===v?'selected':''}>${esc(l)}</option>`).join('')}</select>`;
-  $('#view').innerHTML=`
+  $('#view').innerHTML=`<div id="jobs"></div>
   <p class="muted">${esc(fc.approved)} approved of ${esc(fc.total)} brands.</p>
   <div class="row">
     ${sel('approved',[['','Approved or not'],['yes','Approved'],['no','Not approved']])}
@@ -273,6 +276,12 @@ function openBrand(b){
       <div class="row">Style fit <select data-k="style_fit"><option value="">Not set</option>${[0,1,2,3,4].map(n=>`<option ${b.style_fit===n?'selected':''}>${n}</option>`).join('')}</select></div>
       <textarea data-k="studio_note" placeholder="Your note">${esc(b.studio_note||'')}</textarea>
       <div class="row"><button class="ghost" data-a="save">Save</button>${b.approved_on?`<span class="small muted">Approved ${esc(b.approved_on)}</span>`:''}</div>
+      ${b.approved?`<h3>Bring in the whole catalogue</h3>
+      <p class="small muted">Reads every women's and unisex piece this brand sells. Clear cases go live on their own, borderline ones wait for you in Products.</p>
+      <input type="text" data-k="store_url" value="${esc(b.official_url||'')}" placeholder="Store link, e.g. https://brand.com/en-ca" style="width:100%">
+      <label class="row small"><input type="checkbox" data-k="women_only"> This brand only makes women's clothes</label>
+      <label class="row small"><input type="checkbox" data-k="use_ai"> Let Claude fill gaps the page leaves (a little cost per product)</label>
+      <div class="row"><button data-a="catalog">Bring in catalogue</button></div>`:''}
     </div><div><h3>Research notes</h3>${researchHtml(b.research)}<h3>Discovery notes</h3>${researchHtml(b.discovery)}
       ${(b.flags||[]).length?`<h3>Flags</h3>${researchHtml(b.flags)}`:''}</div></div>`;
   const val=k=>{const el=cell.querySelector(`[data-k="${k}"]`);return el.type==='checkbox'?el.checked:el.value;};
@@ -280,6 +289,61 @@ function openBrand(b){
   cell.querySelector('[data-a=approve]').onclick=()=>post({approved:true});
   cell.querySelector('[data-a=reject]').onclick=()=>post({reject:true});
   cell.querySelector('[data-a=save]').onclick=()=>post({research_status:val('research_status'),unique_find:val('unique_find'),independent_label:val('independent_label'),style_fit:val('style_fit'),studio_note:val('studio_note')});
+  const cat=cell.querySelector('[data-a=catalog]');
+  if(cat)cat.onclick=()=>act(()=>api('/studio/api/catalog/start',{brand_id:b.brand_id,store_url:val('store_url'),women_only:val('women_only'),use_ai:val('use_ai')}),'Started. Progress shows at the top of Brands.').then(()=>viewBrands());
+}
+let jobTimer=null;
+async function jobsPanel(){
+  const el=document.getElementById('jobs');if(!el)return;
+  let d;try{d=await api('/studio/api/catalog');}catch(e){return;}
+  const OUT={live:'Live',hidden_out_of_stock:'Sold out',review:'For you to review',held:'Held back',waiting:'Not enough on the page',spot_check:'Spot checks',kept_brooklyn:'Already yours',skipped_men:"Men's, skipped",skipped_unclear_gender:'Not clearly women\'s, skipped',skipped_not_clothing:'Not clothing, skipped',skipped_other_brand:'Other brands, skipped',invalid:"Didn't pass the checks",failed:"Couldn't read"};
+  const running=d.jobs.some(j=>j.status==='running'||j.status==='queued');
+  el.innerHTML=d.jobs.length?`<div class="panel"><h3>Catalogues${d.auto_approve?'':' (automatic approval is off)'}</h3>${d.jobs.slice(0,6).map(j=>`<div style="margin-bottom:10px">
+     <b>${esc(j.name)}</b> <span class="pill ${j.status==='done'?'live':j.status==='failed'?'hold':'in_review'}">${esc(words(j.status))}</span>
+     <span class="small muted">${esc(j.found)} read${j.method?' · '+esc(j.method):''} · ${when(j.started_at)}</span>
+     ${j.status==='running'?` <button class="ghost" data-stop="${esc(j.job_id)}" style="padding:2px 10px">Stop</button>`:''}
+     <div class="small">${Object.entries(j.counts||{}).filter(([k,v])=>v).map(([k,v])=>`${esc(OUT[k]||k)}: ${esc(v)}`).join(' · ')||'<span class="muted">Starting…</span>'}</div>
+     ${j.error?`<div class="small" style="color:var(--ox)">${esc(j.error)}</div>`:''}</div>`).join('')}</div>`:'';
+  el.querySelectorAll('[data-stop]').forEach(b=>b.onclick=()=>act(()=>api('/studio/api/catalog/stop',{job_id:b.dataset.stop}),'Stopped.').then(jobsPanel));
+  clearTimeout(jobTimer);if(running&&curTab==='brands')jobTimer=setTimeout(jobsPanel,5000);
+}
+
+/* ---------------- test hunt ---------------- */
+let lastHunt={text:'',market:'CA'};
+async function viewHunt(){
+  $('#view').innerHTML=`<div class="panel"><h2>Test hunt</h2>
+    <p class="muted small">Type what a shopper might ask. This runs the real search on live products, with no AI, and shows what Filo understood and why each piece was picked.</p>
+    <div class="row"><input type="text" id="ht" style="flex:1;min-width:240px" value="${esc(lastHunt.text)}" placeholder="white tee boxy not see through under 100">
+      <select id="hm"><option ${lastHunt.market==='CA'?'selected':''}>CA</option><option ${lastHunt.market==='US'?'selected':''}>US</option></select><button id="hgo">Hunt</button></div></div>
+    <div id="hout"></div>`;
+  const go=async()=>{lastHunt={text:$('#ht').value,market:$('#hm').value};$('#hout').innerHTML='<p class="muted">On the hunt…</p>';
+    try{renderHunt(await api('/studio/api/hunt',lastHunt));}catch(e){$('#hout').innerHTML='';say(e.message,true);}};
+  $('#hgo').onclick=go;$('#ht').onkeydown=e=>{if(e.key==='Enter')go();};
+  if(lastHunt.text)go();
+}
+const FILTER={show_rule:'not live or not passing Filo rules',category:'other garment types',resale:'resale listings',material:'wrong fabric',exclusion:'has an excluded material',origin:'origin not confirmed there',ethics:'no product-level proof',gated_conflict:'evidence says the opposite',colour:'other colours',size:'size not available',region:"doesn't ship there",stock:'sold out',freshness:'not checked in 30 days',price:'no price',budget:'over budget'};
+function renderHunt(r){
+  const b=r.brief||{};
+  const chips=Object.entries(b).filter(([k,v])=>!['vibe_text','mode','unmatched_phrases','conflicts'].includes(k)&&v!==null&&!(Array.isArray(v)&&!v.length))
+    .map(([k,v])=>`<span class="chip" style="padding-right:10px"><span class="muted">${words(k)}</span> ${esc(typeof v==='object'&&!Array.isArray(v)?(v.amount?v.currency+' '+v.amount:JSON.stringify(v)):[].concat(v).join(', ').replace(/_/g,' '))}</span>`).join('');
+  const funnel=Object.entries(r.funnel||{}).map(([k,v])=>`${esc(v)} ${esc(FILTER[k]||k)}`).join(' · ');
+  $('#hout').innerHTML=`<div class="panel"><h3>What Filo understood</h3><div>${chips||'<span class="muted">Nothing specific.</span>'}</div>
+    <p class="small muted">Mode: ${esc(r.mode||b.mode)}${(b.unmatched_phrases||[]).length?` · Words it didn't place: ${esc(b.unmatched_phrases.join(', '))}`:''}</p>
+    <p class="small muted">Looked at ${esc(r.considered||0)} live ${(r.considered||0)===1?'product':'products'}${funnel?'. Removed: '+funnel:''}.</p>
+    ${(r.conflicts||[]).length?`<div class="note">These can't both be true: ${esc(r.conflicts.map(c=>c.join(' and ').replace(/_/g,' ')).join('; '))}. The Stylist will ask which matters more.</div>`:''}
+    ${(r.problems||[]).length?`<div class="problems">${esc(r.problems.join(' '))}</div>`:''}</div>
+  ${r.nothing_passed?`<div class="panel"><h3>Nothing passed</h3>${(r.flex_options||[]).map(f=>`<div class="small">If ${esc(words(f.filter))} could change: ${esc(f.would_pass)} would pass${f.lowest_price?` (lowest ${money(f.lowest_price,f.currency)})`:''}${f.colours?` (colours: ${esc(f.colours.join(', '))})`:''}</div>`).join('')||'<p class="small muted">Nothing in the bank comes close yet. This is logged to the Backlog.</p>'}</div>`:''}
+  ${r.fewer_than_asked?`<p class="muted">Only ${esc(r.fewer_than_asked)} passed.</p>`:''}
+  <div class="grid">${(r.results||[]).map(c=>`<div class="tile">
+    <div class="row" style="justify-content:space-between"><span class="pill ${c.is_pick?'live':''}">${esc(c.is_pick?"Stylist's pick":c.slot_label||'')}</span>${c.unique_find?'<span class="pill">Unique find</span>':''}</div>
+    <div class="small muted">${esc(c.brand)}</div><div><b>${esc(c.name)}</b></div>
+    <div class="small">${esc(c.colour||'')} · ${money(c.price,c.currency)}${c.on_sale?' (sale)':''}${c.price_note?' · '+esc(c.price_note):''}</div>
+    <div class="small muted">Match ${esc(Math.round(c.scores.match))} · Quality ${esc(c.scores.quality??'?')} · Evidence ${esc(c.scores.evidence_label)}</div>
+    ${c.trade_off_note?`<div class="note small">${esc(c.trade_off_note)}</div>`:''}
+    ${c.stylist_note?`<div class="small"><i>${esc(c.stylist_note)}</i></div>`:''}
+    <div class="small" style="margin-top:6px">${c.claims.map(cl=>`<div>${esc(words(cl.requirement))}${cl.value?': '+esc(cl.value):''} <span class="muted">${esc(cl.source||words(cl.status))}${cl.quote?' "'+esc(cl.quote.slice(0,90))+'"':''}</span></div>`).join('')}</div>
+    ${(c.missing||[]).length?`<div class="small muted">Not shown on the page: ${esc(c.missing.map(m=>m.replace(/_/g,' ')).join(', '))}</div>`:''}
+    <div class="row">${link(c.url,'Open page')}</div></div>`).join('')}</div>`;
 }
 
 /* ---------------- standards ---------------- */

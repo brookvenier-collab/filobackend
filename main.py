@@ -1083,3 +1083,20 @@ def bank_fx_update(x_filo_admin: Optional[str] = Header(default=None)):
     _require_admin(x_filo_admin)
     rates = bank_fx.update()
     return {"ok": bool(rates), "rates": {k: {"to_cad": v[0], "as_of": v[1]} for k, v in rates.items()}}
+
+
+# Stage 4: the search the Stylist will use. Admin only until Stage 5 adds the shopper-facing API.
+class StylistSearchIn(BaseModel):
+    text: Optional[str] = None
+    brief: Optional[dict] = None
+    market: str = "CA"
+
+
+@app.post("/internal/stylist/search", include_in_schema=False)
+def stylist_search_route(body: StylistSearchIn, x_filo_admin: Optional[str] = Header(default=None)):
+    _require_admin(x_filo_admin)
+    import stylist_search
+    market = body.market if body.market in ("CA", "US") else "CA"
+    if body.brief:
+        return stylist_search.search(body.brief, market)
+    return stylist_search.hunt((body.text or "")[:500], market)

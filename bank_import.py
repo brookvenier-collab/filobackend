@@ -322,6 +322,12 @@ def suggest_decision(facts_by_field: Dict[str, dict], variants: List[dict], filo
     return "conditional", "Meets Filo's rules on what's stated, with gaps listed.", missing
 
 
+def search_text_of(page) -> str:
+    """Words for keyword and meaning search: the name, where it sits on the site, and its description."""
+    bits = [page.name or "", " / ".join(page.breadcrumbs or []), page.structured_text or ""]
+    return re.sub(r"\s+", " ", " \n".join(b for b in bits if b)).strip()[:3000]
+
+
 def build_record(url: str, page, facts: List[dict], checked: str, page_hash: str,
                  version: int = 1, product_id: Optional[str] = None) -> Dict[str, Any]:
     brand, matched_by = match_brand(page, url)
@@ -413,6 +419,7 @@ def build_record(url: str, page, facts: List[dict], checked: str, page_hash: str
     record["status"] = "draft" if decision == "insufficient_evidence" else "in_review"
     return {
         "record": record, "evidence": evidence, "brand": brand, "brand_matched_by": matched_by,
+        "search_text": search_text_of(page),
         "category_found": category is not None, "filo": filo, "page_sources": page.sources,
     }
 
@@ -478,7 +485,7 @@ def import_url(url: str, save: bool = True) -> Dict[str, Any]:
     problems += [f"evidence {e['evidence_id']}: {p}" for e in built["evidence"] for p in bank_validate.validate_evidence(e)]
     saved = False
     if save and not problems and built["brand"] is not None:
-        saved = save_product(built["record"], built["evidence"])
+        saved = save_product(built["record"], built["evidence"], built.get("search_text"))
     _log_source(url, "ok", None, got.page_hash, built["record"]["product_id"])
     return {"ok": not problems, "url": url, "product_id": built["record"]["product_id"],
             "saved": saved, "problems": problems, **built}
@@ -494,7 +501,7 @@ def _facts_rows(record: dict) -> List[Tuple[str, str, dict]]:
     return rows
 
 
-def save_product(record: dict, evidence: List[dict]) -> bool:
+def save_product(record: dict, evidence: List[dict], search_text: Optional[str] = None) -> bool:
     conn = events._conn()
     if conn is None:
         return False
@@ -505,8 +512,8 @@ def save_product(record: dict, evidence: List[dict]) -> bool:
             cur.execute("""
                 INSERT INTO bank_products (product_id, brand_id, name, product_version, category, gender_target,
                     product_url, retailer, is_resale_listing, record, decision, decision_reason, status,
-                    first_seen, last_checked)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s,%s,%s,%s)
+                    first_seen, last_checked, search_text)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s,%s,%s,%s,%s)
                 ON CONFLICT (product_id) DO UPDATE SET
                     name = EXCLUDED.name, product_version = EXCLUDED.product_version,
                     category = EXCLUDED.category, gender_target = EXCLUDED.gender_target,
@@ -523,11 +530,12 @@ def save_product(record: dict, evidence: List[dict]) -> bool:
                                   THEN 'in_review'
                                   WHEN bank_products.status IN ('live','hidden_stale','hidden_out_of_stock')
                                   THEN bank_products.status ELSE EXCLUDED.status END,
-                    last_checked = EXCLUDED.last_checked
+                    last_checked = EXCLUDED.last_checked,
+                    search_text = coalesce(EXCLUDED.search_text, bank_products.search_text)
             """, (record["product_id"], record["brand_id"], record["name"], version, record["category"],
                   record.get("gender_target"), record["product_url"], record.get("retailer"),
                   record.get("is_resale_listing", False), json.dumps(record), f.get("decision"),
-                  f.get("decision_reason"), record["status"], record["first_seen"], record["last_checked"]))
+                  f.get("decision_reason"), record["status"], record["first_seen"], record["last_checked"], search_text))
             for e in evidence:
                 cur.execute("""
                     INSERT INTO bank_evidence (evidence_id, claim, field, subject_type, subject_id, source_url,
@@ -693,14 +701,17 @@ def refresh(product_id: str) -> Dict[str, Any]:
     new["product_version"] = str(version)
     ok_variants = [v for v in new["variants"] if v["availability"] in ("in_stock", "low_stock", "preorder", "made_to_order")]
     status_was = saved["status"]
-    save_product(new, evidence)
+    save_product(new, evidence, built.get("search_text"))
+    rules_decided = saved.get("decided_by") == "rules"
     conn = events._conn()
     if conn is not None:
         try:
             with conn, conn.cursor() as cur:
                 cur.execute("UPDATE bank_evidence SET status = 'current' WHERE subject_id = %s AND status = 'source_failed'",
                             (product_id,))
-                if changed:
+                if changed and rules_decided:
+                    pass                    # the rules look again below
+                elif changed:
                     cur.execute("""UPDATE bank_products SET status = 'in_review', decided_by = NULL,
                                    studio_edits = studio_edits - 'fit_tags_page' WHERE product_id = %s""",
                                 (product_id,))
@@ -711,6 +722,10 @@ def refresh(product_id: str) -> Dict[str, Any]:
                     cur.execute("UPDATE bank_products SET status = %s WHERE product_id = %s", (target, product_id))
         finally:
             conn.close()
+    if changed and rules_decided:
+        import bank_rules
+        brand = _brands().get(new.get("brand_id")) or {}
+        bank_rules.apply_auto(product_id, bank_rules.auto_decide(new, bool(brand.get("approved"))))
     _log_source(url, "changed" if changed else "ok", None, got.page_hash, product_id)
     return {"ok": True, "product_id": product_id, "changed": changed, "product_version": version,
             "in_stock": bool(ok_variants)}
@@ -739,6 +754,11 @@ def run_refresh() -> Dict[str, int]:
         r = refresh(pid)
         done += 1
         failed += 0 if r.get("ok") else 1
+    try:
+        import bank_embed
+        bank_embed.refresh_missing()
+    except Exception as exc:                # noqa: BLE001
+        log.warning("bank_import: meaning-search update failed (%s)", exc)
     return {"refreshed": done, "failed": failed}
 
 

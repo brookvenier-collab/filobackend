@@ -243,7 +243,7 @@ def add_shopify(page: Page, data: Dict[str, Any]):
         return
     page.name = page.name or data.get("title")
     page.brand = page.brand or data.get("vendor")
-    desc = _text_of(data.get("description") or "")
+    desc = _text_of(data.get("description") or data.get("body_html") or "")
     if desc and desc not in page.structured_text:
         page.structured_text += ("\n" if page.structured_text else "") + desc
     opts = [o.get("name", "").lower() if isinstance(o, dict) else str(o).lower() for o in data.get("options", [])]

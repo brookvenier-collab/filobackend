@@ -29,6 +29,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 
 import bank
 import bank_import
+import bank_rules
 import bank_validate
 import events
 
@@ -290,7 +291,11 @@ def update_brand(brand_id: str, changes: Dict[str, Any]) -> Dict[str, Any]:
 
 def products(status: str = "", q: str = "", category: str = "") -> Dict[str, Any]:
     where, args = [], []
-    if status:
+    if status == "rules":
+        where.append("p.decided_by = 'rules'")
+    elif status == "spot":
+        where.append("p.studio_edits ? 'spot_check'")
+    elif status:
         where.append("p.status = %s"); args.append(status)
     if category:
         where.append("p.category = %s"); args.append(category)
@@ -299,6 +304,7 @@ def products(status: str = "", q: str = "", category: str = "") -> Dict[str, Any
     sql = """SELECT p.product_id, p.name, b.name AS brand, b.approved AS brand_approved, p.category, p.status,
                     p.decision, p.decided_by, p.product_version, p.retailer, p.last_checked,
                     (p.record->'filo'->>'is_unique_find')::boolean AS unique_find,
+                    p.studio_edits ? 'spot_check' AS spot_check,
                     (SELECT min(coalesce(v.sale_price, v.price)) FROM bank_variants v WHERE v.product_id = p.product_id) AS price,
                     (SELECT min(v.currency) FROM bank_variants v WHERE v.product_id = p.product_id) AS currency,
                     (SELECT min(v.price_cad) FROM bank_variants v WHERE v.product_id = p.product_id) AS price_cad
@@ -309,6 +315,9 @@ def products(status: str = "", q: str = "", category: str = "") -> Dict[str, Any
                                        WHEN 'live' THEN 3 ELSE 4 END, p.last_checked DESC LIMIT 500"""
     rows = _rows(sql, args)
     by_status = dict((r["status"], r["n"]) for r in _rows("SELECT status, count(*) AS n FROM bank_products GROUP BY status"))
+    extra = _rows("""SELECT count(*) FILTER (WHERE decided_by = 'rules') AS rules,
+                            count(*) FILTER (WHERE studio_edits ? 'spot_check') AS spot FROM bank_products""")[0]
+    by_status.update(extra)
     return _jsonable({"products": rows, "by_status": by_status})
 
 
@@ -316,26 +325,7 @@ def _variant_ok(v: dict) -> bool:
     return v.get("availability") in SHOWABLE_STOCK
 
 
-def go_live_problems(record: dict, brand_approved: bool, decision: Optional[str]) -> List[str]:
-    """Why this product can't be shown yet. Empty means it can go live."""
-    out = []
-    if decision not in ("pass", "conditional"):
-        out.append("The decision has to be pass or conditional.")
-    if not brand_approved:
-        out.append("The brand isn't approved yet. Approve it in Brands first.")
-    variants = record.get("variants") or []
-    if not any(bank_import.current_price(v) is not None for v in variants):
-        out.append("No price with its currency was found.")
-    comp = (record.get("materials") or {}).get("composition") or {}
-    if comp.get("status") != "confirmed":
-        out.append("What it's made of isn't confirmed.")
-    else:
-        origin = ((record.get("construction") or {}).get("country_of_assembly") or {}).get("value")
-        a = bank_import.filo_assessment(comp.get("value"), record.get("category"),
-                                        next((v.get("price_cad") for v in variants if v.get("price_cad")), None),
-                                        record.get("name"), origin)
-        out += a["rule_problems"]
-    return out
+go_live_problems = bank_rules.go_live_problems
 
 
 def _stock_note(record: dict) -> Optional[str]:
@@ -385,6 +375,8 @@ def product(product_id: str) -> Dict[str, Any]:
         "standards": standards, "sources": sources, "studio_edits": saved.get("studio_edits") or {},
         "go_live_problems": go_live_problems(record, bool(brand.get("approved")), saved["decision"]),
         "stock_note": _stock_note(record), "fit_tag_choices": _fit_tag_choices(),
+        "auto_reasons": (_rows("SELECT auto_reasons FROM bank_products WHERE product_id = %s", (product_id,)) or [{}])[0].get("auto_reasons") or [],
+        "spot_check": bool((saved.get("studio_edits") or {}).get("spot_check")),
     })
 
 
@@ -410,7 +402,7 @@ def import_product(url: str) -> Dict[str, Any]:
 
 
 def _current(product_id: str) -> dict:
-    rows = _rows("""SELECT p.record, p.status, p.decision, p.decided_by, p.product_version, p.studio_edits,
+    rows = _rows("""SELECT p.record, p.status, p.decision, p.decided_by, p.product_version, p.studio_edits, p.auto_reasons,
                            b.approved AS brand_approved, p.product_url
                     FROM bank_products p JOIN bank_brands b ON b.brand_id = p.brand_id WHERE p.product_id = %s""",
                  (product_id,))
@@ -456,7 +448,8 @@ def decide(product_id: str, decision: str, reason: str = "", version=None, publi
         f["decision_reason"] = reason.strip()[:600]
     record["status"] = status
     _save_record(product_id, record,
-                 ", decision = %s, decision_reason = %s, decided_by = 'brooklyn', decided_on = %s, status = %s",
+                 ", decision = %s, decision_reason = %s, decided_by = 'brooklyn', decided_on = %s, status = %s,"
+                 " studio_edits = studio_edits - 'spot_check'",
                  (decision, f.get("decision_reason"), today, status))
     _log("decide", product_id, {"decision": decision, "publish": publish, "status": status,
                                 "version": row["product_version"]})
@@ -825,6 +818,44 @@ def sources() -> Dict[str, Any]:
     return _jsonable({"failing": failing, "failed_imports": failed_imports})
 
 
+# ------------------------------------------------------------------ test hunt and catalogues
+
+def test_hunt(text: str, market: str = "CA") -> Dict[str, Any]:
+    import stylist_search
+    text = (text or "").strip()
+    if not text:
+        raise StudioError("Type what a shopper might ask.")
+    if market not in ("CA", "US"):
+        market = "CA"
+    r = stylist_search.hunt(text[:500], market)
+    _log("test_hunt", None, {"text": text[:200], "results": len(r.get("results") or [])})
+    return _jsonable(r)
+
+
+def catalog_start(brand_id: str, store_url: str = "", women_only: bool = False, use_ai: bool = False,
+                  limit: int = 600) -> Dict[str, Any]:
+    import bank_catalog
+    try:
+        r = bank_catalog.start(brand_id, store_url, women_only, use_ai, limit)
+    except ValueError as exc:
+        raise StudioError(str(exc))
+    _log("catalog_start", brand_id, {"store_url": store_url, "women_only": women_only, "use_ai": use_ai})
+    return r
+
+
+def catalog_jobs() -> Dict[str, Any]:
+    import bank_catalog
+    import bank_rules
+    return _jsonable({"jobs": bank_catalog.jobs(), "auto_approve": bank_rules.auto_approve_on()})
+
+
+def catalog_stop(job_id: str) -> Dict[str, Any]:
+    import bank_catalog
+    bank_catalog.stop(job_id)
+    _log("catalog_stop", job_id)
+    return {"ok": True}
+
+
 # ------------------------------------------------------------------ web routes
 
 router = APIRouter(include_in_schema=False)
@@ -1001,3 +1032,26 @@ def api_health(request: Request, days: int = 30):
 def api_sources(request: Request):
     _need_session(request)
     return _call(sources)
+
+
+@router.post("/studio/api/hunt")
+def api_hunt(request: Request, payload: dict = Body(...)):
+    _need_session(request, write=True)
+    return _call(test_hunt, str(payload.get("text") or ""), str(payload.get("market") or "CA"))
+
+
+@router.get("/studio/api/catalog")
+def api_catalog(request: Request):
+    _need_session(request)
+    return _call(catalog_jobs)
+
+
+@router.post("/studio/api/catalog/{action}")
+def api_catalog_action(request: Request, action: str, payload: dict = Body(...)):
+    _need_session(request, write=True)
+    if action == "start":
+        return _call(catalog_start, str(payload.get("brand_id") or ""), str(payload.get("store_url") or ""),
+                     bool(payload.get("women_only")), bool(payload.get("use_ai")), int(payload.get("limit") or 600))
+    if action == "stop":
+        return _call(catalog_stop, str(payload.get("job_id") or ""))
+    raise HTTPException(status_code=404, detail="Not found")
