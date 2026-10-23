@@ -481,6 +481,19 @@ def test_v43_trusted_recommendations():
         catalog.STRICT_SOURCES = False
 
 
+def test_v44_tee_brands():
+    """Brooklyn, 23 Oct 2026: a 100% cotton tee found no recommendations. Tees had
+    no makers searched by name. Her picks: Daydreamer, Cotton Citizen, AllSaints."""
+    print("\n=== v44: tee makers ===")
+    import brands
+    tees = brands.makers_for("women's t-shirt", 3.0)
+    check("a tee scan now searches makers by name", len(tees) >= 3, True)
+    check("Brooklyn's picks are trusted",
+          [brands.tier(x, "") for x in ("Daydreamer", "Cotton Citizen", "AllSaints")],
+          [brands.TIER_MAKER] * 3)
+    check("Daydreamer LA counts as Daydreamer", brands.tier("Daydreamer LA", ""), brands.TIER_MAKER)
+
+
 def test_v39_more_listings():
     """Brooklyn, 23 Oct 2026: a 100% cotton tee at $25 in Canada said "Not enough
     similar listings" (5 usable). Shop titles rarely spell out "100%"."""
@@ -1853,6 +1866,7 @@ if __name__ == "__main__":
     test_v41_barcode_brain()
     test_v42_usual_price()
     test_v43_trusted_recommendations()
+    test_v44_tee_brands()
     test_v40_leather_lining_label()
     test_score_parts()
     test_market_price_check()

@@ -122,19 +122,19 @@ DEPARTMENT_STORES = {
 # --------------------------------------------------------------------------
 QUALITY_MAKERS = {
     "nudie jeans":              {"good_at": ["jeans", "denim"],              "note": "100% organic cotton denim, free repairs for life"},
-    "armedangels":              {"good_at": ["jeans", "denim", "knit", "top"], "note": "GOTS organic cotton and wool, Fair Wear"},
+    "armedangels":              {"good_at": ["t-shirt", "jeans", "denim", "knit", "top"], "note": "GOTS organic cotton and wool, Fair Wear"},
     "kuyichi":                  {"good_at": ["jeans", "denim"],              "note": "organic and recycled denim"},
     "naked & famous":           {"good_at": ["jeans", "denim"],              "note": "Japanese selvedge, unusual weaves"},
-    "knowledge cotton apparel": {"good_at": ["knit", "top", "shirt"],        "note": "GOTS organic cotton, RWS wool"},
-    "hessnatur":                {"good_at": ["knit", "top", "dress", "wool"], "note": "GOTS cotton, wool, hemp, TENCEL"},
-    "people tree":              {"good_at": ["dress", "top", "blouse"],      "note": "80%+ GOTS organic cotton, WFTO fair trade"},
-    "q for quinn":              {"good_at": ["socks", "underwear", "basics"], "note": "95–100% organic cotton, RWS merino"},
-    "organic basics":           {"good_at": ["basics", "top", "underwear"],  "note": "organic cotton and TENCEL basics"},
-    "colorful standard":        {"good_at": ["top", "sweatshirt", "hoodie", "knit"], "note": "heavyweight organic cotton"},
-    "asket":                    {"good_at": ["top", "shirt", "knit"],        "note": "traceable supply chain, heavier weights"},
-    "pact":                     {"good_at": ["basics", "top"],               "note": "GOTS organic cotton basics"},
-    "harvest & mill":           {"good_at": ["top", "basics"],               "note": "US-grown organic cotton"},
-    "jungmaven":                {"good_at": ["top", "tee"],                  "note": "hemp and hemp-cotton"},
+    "knowledge cotton apparel": {"good_at": ["t-shirt", "knit", "top", "shirt"],        "note": "GOTS organic cotton, RWS wool"},
+    "hessnatur":                {"good_at": ["t-shirt", "knit", "top", "dress", "wool"], "note": "GOTS cotton, wool, hemp, TENCEL"},
+    "people tree":              {"good_at": ["t-shirt", "dress", "top", "blouse"],      "note": "80%+ GOTS organic cotton, WFTO fair trade"},
+    "q for quinn":              {"good_at": ["t-shirt", "socks", "underwear", "basics"], "note": "95–100% organic cotton, RWS merino"},
+    "organic basics":           {"good_at": ["t-shirt", "basics", "top", "underwear"],  "note": "organic cotton and TENCEL basics"},
+    "colorful standard":        {"good_at": ["t-shirt", "top", "sweatshirt", "hoodie", "knit"], "note": "heavyweight organic cotton"},
+    "asket":                    {"good_at": ["t-shirt", "top", "shirt", "knit"],        "note": "traceable supply chain, heavier weights"},
+    "pact":                     {"good_at": ["t-shirt", "basics", "top"],               "note": "GOTS organic cotton basics"},
+    "harvest & mill":           {"good_at": ["t-shirt", "top", "basics"],               "note": "US-grown organic cotton"},
+    "jungmaven":                {"good_at": ["t-shirt", "top", "tee"],                  "note": "hemp and hemp-cotton"},
     "christy dawn":             {"good_at": ["dress"],                       "note": "deadstock and regenerative cotton"},
     "not perfect linen":        {"good_at": ["linen", "dress", "shirt"],     "note": "washed European linen"},
     "son de flor":              {"good_at": ["linen", "dress"],              "note": "linen dresses"},
@@ -153,7 +153,10 @@ QUALITY_MAKERS = {
     "deadwood":                 {"good_at": ["leather", "jacket"],           "note": "recycled real leather"},
     "schott":                   {"good_at": ["leather", "jacket"],           "note": "US-made leather jackets since 1913"},
     "acne studios":             {"good_at": ["leather", "jacket", "jeans", "denim", "knit"], "note": "leather, wool and denim"},
-    "allsaints":                {"good_at": ["leather", "jacket"],           "note": "real leather biker jackets"},
+    "allsaints":                {"good_at": ["leather", "jacket", "t-shirt", "tee"], "note": "real leather biker jackets; Brooklyn's pick for tees (23 Oct)"},
+    # v44 (23 Oct 2026): Brooklyn's picks for 100% cotton tees.
+    "daydreamer":               {"good_at": ["t-shirt", "tee", "top", "sweatshirt"], "note": "Brooklyn's pick (23 Oct): cotton tees"},
+    "cotton citizen":           {"good_at": ["t-shirt", "tee", "top", "sweatshirt", "sweatpants"], "note": "Brooklyn's pick (23 Oct): cotton tees and basics"},
     "the frankie shop":         {"good_at": ["jacket", "blazer", "coat", "trousers", "shirt"], "note": "tailoring in wool and cotton"},
     "anine bing":               {"good_at": ["leather", "jacket", "blazer", "knit", "tee"], "note": "leather, wool blazers, cashmere"},
     "toteme":                   {"good_at": ["coat", "jacket", "knit", "shirt", "jeans", "denim"], "note": "wool coats, organic cotton denim"},
@@ -174,18 +177,18 @@ QUALITY_MAKERS = {
     "lisa yang":                {"good_at": ["knit", "sweater", "cardigan"], "note": "100% cashmere"},
     "naadam":                   {"good_at": ["knit", "sweater", "cardigan"], "note": "Mongolian cashmere"},
     "jenni kayne":              {"good_at": ["knit", "sweater", "cardigan", "coat"], "note": "cashmere, alpaca, wool"},
-    "la ligne":                 {"good_at": ["knit", "sweater", "top"],      "note": "wool and cashmere knits"},
+    "la ligne":                 {"good_at": ["t-shirt", "knit", "sweater", "top"],      "note": "wool and cashmere knits"},
     # Shirts, tees, dresses, trousers
     "sunspel":                  {"good_at": ["tee", "t-shirt", "top", "knit"], "note": "long-staple cotton tees"},
     "with nothing underneath":  {"good_at": ["shirt", "blouse"],             "note": "cotton and linen shirts"},
-    "doen":                     {"good_at": ["dress", "blouse", "top", "skirt"], "note": "organic cotton and silk"},
-    "faithfull the brand":      {"good_at": ["dress", "skirt", "top"],       "note": "linen dresses"},
-    "posse":                    {"good_at": ["dress", "skirt", "top", "linen"], "note": "linen"},
-    "reformation":              {"good_at": ["dress", "leather", "jeans", "skirt", "top"], "note": "linen, silk, leather"},
+    "doen":                     {"good_at": ["t-shirt", "dress", "blouse", "top", "skirt"], "note": "organic cotton and silk"},
+    "faithfull the brand":      {"good_at": ["t-shirt", "dress", "skirt", "top"],       "note": "linen dresses"},
+    "posse":                    {"good_at": ["t-shirt", "dress", "skirt", "top", "linen"], "note": "linen"},
+    "reformation":              {"good_at": ["t-shirt", "dress", "leather", "jeans", "skirt", "top"], "note": "linen, silk, leather"},
     "sezane":                   {"good_at": ["knit", "blouse", "dress", "jacket", "leather"], "note": "wool knits, leather"},
     "nili lotan":               {"good_at": ["trousers", "pants", "shirt", "knit"], "note": "cotton and wool, NY-made"},
     "margaret howell":          {"good_at": ["shirt", "trousers", "knit", "coat"], "note": "British cotton, linen and wool"},
-    "cuyana":                   {"good_at": ["knit", "top", "trousers"],    "note": "silk, pima cotton, cashmere"},
+    "cuyana":                   {"good_at": ["t-shirt", "knit", "top", "trousers"],    "note": "silk, pima cotton, cashmere"},
     # Streetwear (added 11 Oct 2026: "brands like Stussy"). Same rule as every
     # maker here: being listed decides where Filo LOOKS. A hoodie that is mostly
     # polyester, or does not say what it is made of, is still not shown.
@@ -201,7 +204,7 @@ QUALITY_MAKERS = {
 # only to pick which makers to SEARCH for a given budget — a $90 scan shouldn't
 # spend its two brand searches on labels that start at $900, because none of
 # those pieces can be shown anyway. Anyone not listed is level 1.
-PRICE_LEVEL = {'nour hammour': 4, 'acne studios': 4, 'toteme': 4, 'nili lotan': 4, 'margaret howell': 4, 'mackage': 3, 'schott': 3, 'allsaints': 3, 'anine bing': 3, 'st. agni': 3, 'loulou studio': 3, 'harris wharf london': 3, 're/done': 3, 'slvrlake': 3, '&daughter': 3, 'lisa yang': 3, 'jenni kayne': 3, 'la ligne': 3, 'doen': 3, 'posse': 3, 'deadwood': 2, 'the frankie shop': 2, 'soia & kyo': 2, 'agolde': 2, 'citizens of humanity': 2, 'still here': 2, 'babaa': 2, 'sunspel': 2, 'with nothing underneath': 2, 'faithfull the brand': 2, 'reformation': 2, 'sezane': 2, 'cuyana': 2, 'nudie jeans': 2, 'armedangels': 2, 'hessnatur': 2, 'naked & famous': 2, 'icebreaker': 2, 'christy dawn': 2, 'naadam': 1,
+PRICE_LEVEL = {'daydreamer': 2, 'cotton citizen': 3, 'nour hammour': 4, 'acne studios': 4, 'toteme': 4, 'nili lotan': 4, 'margaret howell': 4, 'mackage': 3, 'schott': 3, 'allsaints': 3, 'anine bing': 3, 'st. agni': 3, 'loulou studio': 3, 'harris wharf london': 3, 're/done': 3, 'slvrlake': 3, '&daughter': 3, 'lisa yang': 3, 'jenni kayne': 3, 'la ligne': 3, 'doen': 3, 'posse': 3, 'deadwood': 2, 'the frankie shop': 2, 'soia & kyo': 2, 'agolde': 2, 'citizens of humanity': 2, 'still here': 2, 'babaa': 2, 'sunspel': 2, 'with nothing underneath': 2, 'faithfull the brand': 2, 'reformation': 2, 'sezane': 2, 'cuyana': 2, 'nudie jeans': 2, 'armedangels': 2, 'hessnatur': 2, 'naked & famous': 2, 'icebreaker': 2, 'christy dawn': 2, 'naadam': 1,
                'stussy': 2, 'carhartt wip': 2, 'sporty & rich': 2, 'madhappy': 2,
                'aime leon dore': 3, 'les tien': 3}
 
@@ -218,6 +221,7 @@ MAKER_ALIASES = {
     "sézane": "sezane", "dôen": "doen", "babaà": "babaa", "totême": "toteme",
     "st agni": "st. agni", "redone": "re/done", "and daughter": "&daughter",
     "all saints": "allsaints", "schott nyc": "schott",
+    "daydreamer la": "daydreamer", "daydreamer los angeles": "daydreamer",
     "stüssy": "stussy", "aimé leon dore": "aime leon dore",
     "carhartt work in progress": "carhartt wip",
 }
