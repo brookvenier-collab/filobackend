@@ -236,6 +236,9 @@ def import_records(records: List[Dict[str, Any]], source: str) -> Dict[str, Any]
                 continue
             s.set_locked(g, field, clean)
             wrote = True
+        # v42: a feed price joins the usual price for this barcode.
+        if r.get("price") is not None:
+            products.record_price(g, r.get("price"), r.get("country"), source=f"feed:{src}")
         added += 1 if wrote else 0
         skipped += 0 if wrote else 1
     return {"ok": True, "source": src, "added": added, "skipped": skipped}

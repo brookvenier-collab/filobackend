@@ -82,6 +82,15 @@ CREATE TABLE IF NOT EXISTS rn_registrants (
     checked_day DATE NOT NULL DEFAULT CURRENT_DATE,
     PRIMARY KEY (kind, number)
 );
+CREATE TABLE IF NOT EXISTS product_prices (
+    gtin      TEXT NOT NULL,
+    price     NUMERIC(10,2) NOT NULL,
+    currency  CHAR(3) NOT NULL,
+    country   CHAR(2) NOT NULL,
+    source    TEXT NOT NULL,            -- 'shopper' | 'feed:<name>'
+    day       DATE NOT NULL DEFAULT CURRENT_DATE
+);
+CREATE INDEX IF NOT EXISTS product_prices_idx ON product_prices (gtin, country, day);
 """
 
 
@@ -429,3 +438,63 @@ def brand_summary(min_products: int = 1, s=None) -> List[Dict[str, Any]]:
         counts[top] = counts.get(top, 0) + 1
     rows = [{"brand": b, "products": n} for b, n in counts.items() if n >= min_products]
     return sorted(rows, key=lambda r: (-r["products"], r["brand"]))
+
+
+# ------------------------------------------------------------------ prices (v42)
+#
+# What a barcoded piece usually sells for, from prices shoppers entered and
+# retailer feeds. Each row is a price, a currency, a country, a source and a
+# day: nothing about who entered it. Only the last PRICE_DAYS count, so sales
+# and old prices fade out. The next shopper sees "Usually $45" and gets the
+# Worth it? answer without typing; anyone paying something else changes it.
+
+PRICE_DAYS = 120
+_mem_prices: List[Dict[str, Any]] = []
+
+
+def _market(country):
+    c = (country or "").upper()
+    return ("CA", "CAD") if c == "CA" else ("US", "USD")
+
+
+def record_price(gtin, price, country=None, source="shopper") -> bool:
+    g = normalize_gtin(gtin)
+    try:
+        p = round(float(price), 2)
+    except (TypeError, ValueError):
+        return False
+    if not g or not 1 <= p <= 20000:
+        return False
+    c, cur = _market(country)
+    src = str(source or "shopper")[:40]
+    if events.DATABASE_URL:
+        PostgresStore()._run("INSERT INTO product_prices (gtin, price, currency, country, source) "
+                             "VALUES (%s, %s, %s, %s, %s)", (g, p, cur, c, src))
+        return True
+    _mem_prices.append({"gtin": g, "price": p, "currency": cur, "country": c,
+                        "source": src, "day": date.today()})
+    return True
+
+
+def usual_price(gtin, country=None, days: int = PRICE_DAYS) -> Optional[Dict[str, Any]]:
+    """{"price", "currency", "count"}: the median of recent prices in this
+    country, or None when nobody has given one yet."""
+    g = normalize_gtin(gtin)
+    if not g:
+        return None
+    c, cur = _market(country)
+    if events.DATABASE_URL:
+        rows = PostgresStore()._run(
+            "SELECT price FROM product_prices WHERE gtin = %s AND country = %s "
+            "AND day >= CURRENT_DATE - %s", (g, c, days), fetch=True) or []
+        prices = sorted(float(r[0]) for r in rows)
+    else:
+        from datetime import timedelta
+        since = date.today() - timedelta(days=days)
+        prices = sorted(r["price"] for r in _mem_prices
+                        if r["gtin"] == g and r["country"] == c and r["day"] >= since)
+    if not prices:
+        return None
+    n = len(prices)
+    mid = prices[n // 2] if n % 2 else (prices[n // 2 - 1] + prices[n // 2]) / 2
+    return {"price": round(mid, 2), "currency": cur, "count": n}

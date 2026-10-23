@@ -429,6 +429,30 @@ def test_v41_barcode_brain():
     check("an outside failure never breaks a scan", True, True)
 
 
+def test_v42_usual_price():
+    """Brooklyn, 23 Oct 2026: once Filo knows a product, it should know its price too."""
+    print("\n=== v42: the usual price for a barcode ===")
+    import products, main
+    products._mem_prices.clear()
+    g = "4006381333931"
+    check("no price yet", products.usual_price(g, "CA"), None)
+    main.analyze(main.AnalyzeRequest(item=main.Item(gtin=g, composition="100% Cotton", category="T-shirt",
+                                                    price=40, country="CA", mode="score")))
+    main.analyze(main.AnalyzeRequest(item=main.Item(gtin=g, composition="100% Cotton", category="T-shirt",
+                                                    price=50, country="CA", mode="score")))
+    u = products.usual_price(g, "CA")
+    check("shoppers' prices make the usual price", (u["price"], u["currency"], u["count"]), (45.0, "CAD", 2))
+    check("a different country keeps its own", products.usual_price(g, "US"), None)
+    r = main.analyze(main.AnalyzeRequest(item=main.Item(gtin=g, country="CA", mode="score")))
+    check("the next scan gets the usual price", r["usual_price"]["price"], 45.0)
+    main.analyze(main.AnalyzeRequest(item=main.Item(gtin=g, price=45, price_source="usual",
+                                                    country="CA", mode="score")))
+    check("the usual price sent back isn't counted again", products.usual_price(g, "CA")["count"], 2)
+    check("silly prices are refused", products.record_price(g, 0, "CA"), False)
+    check("no shopper id is stored with a price", set(products._mem_prices[0]),
+          {"gtin", "price", "currency", "country", "source", "day"})
+
+
 def test_v39_more_listings():
     """Brooklyn, 23 Oct 2026: a 100% cotton tee at $25 in Canada said "Not enough
     similar listings" (5 usable). Shop titles rarely spell out "100%"."""
@@ -2841,6 +2865,7 @@ if __name__ == "__main__":
     test_v37_market_price()
     test_v39_more_listings()
     test_v41_barcode_brain()
+    test_v42_usual_price()
     test_v40_leather_lining_label()
     test_score_parts()
     test_market_price_check()
