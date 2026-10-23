@@ -196,7 +196,8 @@ def build(composition, construction=None, result=None):
     material = result.get("material")
     life = result.get("lifespan")
     if material == "real leather":
-        rows.append(_life("good", "good", "Decades with basic care."))
+        # v40: no lifespan study covers leather; care decides it.
+        rows.append(_life("good", "ok", "Depends on care. Leather fails by drying out, not in the wash."))
     elif material == "faux leather":
         rows.append(_life("bad", "poor", "Expect cracking within a couple of years."))
     elif life:

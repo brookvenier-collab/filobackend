@@ -59,7 +59,8 @@ DISCLAIMER = ("Compared with current prices for similar pieces. "
 
 GOOD, FAIR, OVER = "good_value", "fair", "overpaying"
 # v37: the words the app shows, short enough for the in-store card.
-LABELS = {GOOD: "Good price", FAIR: "Fair price", OVER: "Priced high"}
+# v40: neutral words (Brooklyn's review, 23 Oct): price is its own read, never a pass or fail.
+LABELS = {GOOD: "Good value", FAIR: "Priced fairly", OVER: "Pricey for what it is"}
 # v37: how long the fast verdict waits for the listings before it gives up.
 FAST_TIMEOUT_S = 9
 

@@ -349,11 +349,11 @@ def test_v37_market_price():
     check("real leather is now priced", pc["level"], market.GOOD)
     check("...against real leather only", pc["benchmark"]["median"] >= 300, True)
     check("short line says what pieces sell for", pc["short"].startswith("Similar pieces sell for $"), True)
-    check("plain words", (market.LABELS[market.GOOD], market.LABELS[market.OVER]), ("Good price", "Priced high"))
+    check("plain words", (market.LABELS[market.GOOD], market.LABELS[market.OVER]), ("Good value", "Pricey for what it is"))
     _, fm = fabric.quality_score("100% Polyurethane")
     check("faux leather isn't priced", market.benchmark("jacket", fm, fetch=fetch), None)
     row = market.price_rows(pc)[0]
-    check("row title is the word", row["title"], "Good price")
+    check("row title is the word", row["title"], "Good value")
     check("no cost-to-make wording", any("to make" in (row[k] or "") for k in ("line", "detail")), False)
     check("not enough listings says so", market.price_rows({"level": None, "line": market.NOT_ENOUGH,
                                                            "pending": False})[0]["line"], market.NOT_ENOUGH)
@@ -365,6 +365,21 @@ def test_v37_market_price():
     r = main.analyze(main.AnalyzeRequest(item=main.Item(composition="100% cotton", mode="score")))
     check("no price: no price row", [x for x in r["breakdown"] if x["side"] == "price"], [])
     check("price section comes last", main.BREAKDOWN_SECTIONS[-1]["label"], "WORTH IT?")
+
+
+def test_v40_leather_lining_label():
+    """A polyester lining after a leather shell is not a leather lining."""
+    print("\n=== v40: leather lining read correctly ===")
+    tag = "Shell: 100% Leather Lining: 100% Polyester"
+    d = fabric.quality_detail(tag)
+    check("no 'lined in leather' from a section label", "leather_lining" in d["construction"], False)
+    check("still reads a real leather lining",
+          "leather_lining" in fabric.quality_detail("100% lambskin, leather-lined")["construction"], True)
+    check("poly-lined leather stays below The real thing", d["score"] < 8.0, True)
+    import breakdown, main
+    r = main.analyze(main.AnalyzeRequest(item=main.Item(composition=tag, category="Jacket", mode="score")))
+    life = [x["line"] for x in r["breakdown"] if x["title"] == "How long it lasts"]
+    check("no 'decades' for leather", any("ecade" in l for l in life), False)
 
 
 def test_v39_more_listings():
@@ -2778,6 +2793,7 @@ if __name__ == "__main__":
     test_v36_premium_fibres()
     test_v37_market_price()
     test_v39_more_listings()
+    test_v40_leather_lining_label()
     test_score_parts()
     test_market_price_check()
     test_products()
