@@ -237,6 +237,19 @@ def analyze(req: AnalyzeRequest):
     }
     if req.item.category is None and item["category"]:
         req.item.category = item["category"]
+    # v42: prices for a barcode. A price the shopper gave is remembered (never
+    # who gave it). With no price, the usual one answers Worth it? for them.
+    usual = None
+    if req.item.gtin:
+        try:
+            if req.item.price is not None and (req.item.price_source or "entered") != "usual":
+                products.record_price(req.item.gtin, req.item.price, req.item.country)
+            elif req.item.price is None:
+                usual = products.usual_price(req.item.gtin, req.item.country)
+                if usual:
+                    item["price"] = usual["price"]
+        except Exception:                   # noqa: BLE001  never block a verdict
+            usual = None
     # v26: the garment type sets the base life and wears per wash.
     item["group"] = catalog.garment_group(req.item.category)
 
@@ -250,6 +263,7 @@ def analyze(req: AnalyzeRequest):
     result["composition_read"] = item["composition"] or None
     result["product"] = _product_step(req, known, scanned_composition, from_db,
                                       result.get("score"))
+    result["usual_price"] = usual
     if req.item.seam_image:
         # What the seam photo showed, so the app can say so — even when it was
         # nothing ("we couldn't make out the seam — try closer, in good light").
