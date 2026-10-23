@@ -264,6 +264,7 @@ def analyze(req: AnalyzeRequest):
         result["price_prompt"] = None
         if group is None:
             result["price_check"] = {"level": None, "label": None, "pending": False,
+                                     "needs_type": True,
                                      "line": "Tell us what it is to compare the price."}
         else:
             result["price_check"] = {"level": None, "label": None, "pending": True,
@@ -290,8 +291,8 @@ def analyze(req: AnalyzeRequest):
     # v30.2: the generic fair price on the verdict page itself, as a breakdown
     # row the app shows under "WHAT IT SHOULD COST". From the fibre (and the
     # garment once picked), never from the shopper's price.
-    result["breakdown"] = (result.get("breakdown") or []) + \
-        value.breakdown_rows(value_item, value_detail, score, fair)
+    # v37: no "What it should cost" row from fabric costs. The price row is the
+    # market check below, and only once the shopper gives a price.
     result["breakdown_sections"] = BREAKDOWN_SECTIONS
     # v31: what Filo shoppers said about pieces like this (voices.py). Only
     # from a group over the floor; empty until then. Never waits on the database.
@@ -303,6 +304,22 @@ def analyze(req: AnalyzeRequest):
     if (req.item.mode or "full") == "score" or score is None:
         # The fast path: verdict only. The app asks again with mode="full" (or
         # with a category) for the alternatives.
+        # v37: with a price and a garment type, the price check runs here too,
+        # so "Worth it?" answers without waiting for the recommendations.
+        if (result.get("price_check") or {}).get("pending"):
+            department_fast = catalog.normalize_department(req.item.department, item.get("category"))
+            _pool = ThreadPoolExecutor(max_workers=1)
+            try:
+                pc = _pool.submit(market.check, item["price"], group, matched,
+                                  department_fast, None, req.item.country
+                                  ).result(timeout=market.FAST_TIMEOUT_S)
+            except Exception:               # noqa: BLE001
+                pc = None
+            finally:
+                _pool.shutdown(wait=False)
+            _set_price_check(result, pc)
+        result["breakdown"] = (result.get("breakdown") or []) + \
+            market.price_rows(result.get("price_check"))
         result["alternatives"] = []
         result["alternatives_note"] = None
         result["pending"] = score is not None
@@ -402,14 +419,7 @@ def analyze(req: AnalyzeRequest):
                 pc = price_future.result(timeout=catalog.SEARCH_BUDGET + 2)
             except Exception:               # noqa: BLE001
                 pc = None
-            pc = pc or {"level": None, "label": None, "line": market.NOT_ENOUGH}
-            pc["pending"] = False
-            result["price_check"] = pc
-            # The 1.x app shows price_note as one line, so it carries the whole
-            # verdict and what it's based on.
-            result["price_note"] = " ".join(x for x in (
-                (pc.get("label") + ".") if pc.get("label") else None,
-                pc.get("line"), pc.get("based_on")) if x)
+            pc = _set_price_check(result, pc)
             # v30: the fair price leads; what shops charge follows it.
             store = None
             if store_future is not None:
@@ -420,10 +430,10 @@ def analyze(req: AnalyzeRequest):
             fair = value.assess(value_item, value_detail, score, market_check=pc,
                                 store_check=store) or fair
             _apply_fair(result, fair, pc)
-            # The verdict row on the result page follows the newest read.
-            result["breakdown"] = [r for r in (result.get("breakdown") or [])
-                                   if r.get("side") != "price"] + \
-                value.breakdown_rows(value_item, value_detail, score, fair)
+        # v37: the price row is today's market, never the fabric-cost estimate.
+        result["breakdown"] = [r for r in (result.get("breakdown") or [])
+                               if r.get("side") != "price"] + \
+            market.price_rows(result.get("price_check"))
 
         try:
             # The style read is garnish. It gets 4 seconds past the search and
@@ -582,10 +592,24 @@ APP_COLORS = [
 # The result page's sections, in order. A row's "side" picks its section.
 BREAKDOWN_SECTIONS = [
     {"side": "bad", "label": "HOLDING IT BACK"},
-    {"side": "price", "label": "WHAT IT SHOULD COST"},
     {"side": "good", "label": "WHAT IS GOOD"},
     {"side": "note", "label": "NOT CHECKED"},
+    # v37: today's market, after the make. Was "WHAT IT SHOULD COST".
+    {"side": "price", "label": "WORTH IT?"},
 ]
+
+
+def _set_price_check(result, pc):
+    """v37. Store the market check on the result, in both shapes the apps read."""
+    pc = pc or {"level": None, "label": None, "line": market.NOT_ENOUGH}
+    pc["pending"] = False
+    result["price_check"] = pc
+    # The 1.x app shows price_note as one line, so it carries the whole
+    # verdict and what it's based on.
+    result["price_note"] = " ".join(x for x in (
+        (pc.get("label") + ".") if pc.get("label") else None,
+        pc.get("line"), pc.get("based_on")) if x)
+    return pc
 
 
 @app.get("/config")

@@ -52,7 +52,7 @@ def test_scoring():
     for comp, want in [
         ("60% Cotton, 40% Polyester", 6.0),
         ("100% Polyester", 4.5),
-        ("100% Linen", 7.5),   # no lifespan data for linen; comfort only
+        ("100% Linen", 7.2),   # v36: breathes, but wears at the folds; no lifespan data
         ("Top 55% Cotton 45% Polyester", 5.9),
         ("100% Cotton", 7.0),  # the reference
         ("100% Wool", 7.9),    # 8.4 uncapped, held at the tag-only cap
@@ -297,6 +297,76 @@ def test_products_api():
     check("bad barcode is said plainly", A(gtin="123", composition="100% Cotton")["product"]["status"], "invalid")
 
 
+def test_v36_premium_fibres():
+    """Brooklyn, 22 Oct 2026: wool, cashmere, silk and leather all showed 79, and
+    leather was a typed-in number. Each premium fibre now scores on its own
+    sourced parts, under the tag-only cap for its own reasons."""
+    print("\n=== v36: premium fibres scored on their own ===")
+    q = lambda c: fabric.quality_detail(c)["score"]
+    tops = {c: q("100% " + c) for c in ["wool", "cashmere", "silk", "linen", "leather"]}
+    check("the five no longer share one score", len(set(tops.values())) >= 4, True)
+    check("nothing tag-only passes 79", max(tops.values()) <= 7.9, True)
+    check("all five at or above cotton", min(tops.values()) >= q("100% Cotton"), True)
+    check("wool tops the tag-only scores", tops["wool"], max(tops.values()))
+    check("cashmere pills more than wool", tops["cashmere"] < tops["wool"], True)
+    check("leather is no longer hand-set",
+          [p["part"] for p in fabric.score_parts(fabric.quality_detail("100% leather")["matched"])
+           if p["part"] == "fixed"], [])
+    check("leather is tougher than cotton",
+          dict((p["part"], p["points"]) for p in
+               fabric.score_parts(fabric.quality_detail("100% leather")["matched"])).get("wear", 0) > 0, True)
+    check("suede marks down a little", q("100% suede") < q("100% leather"), True)
+    check("genuine leather below plain leather", q("Genuine leather") < q("100% Leather"), True)
+    check("poly-lined leather is not The real thing",
+          fabric.verdict(q("Full-grain leather. Lining: 100% polyester")) != "The real thing", True)
+    check("faux leather still far below", q("100% vegan leather") < 4.5, True)
+    check("elastane at 10% barely moves cotton", round(q("90% cotton 10% elastane"), 1), 6.9)
+    lines = " ".join(fabric.reasons(q("100% silk"), fabric.quality_detail("100% silk")["matched"], None))
+    check("silk copy says it's delicate", "delicate" in lines, True)
+    lines = " ".join(fabric.reasons(q("100% leather"), fabric.quality_detail("100% leather")["matched"], None))
+    check("no 'decades' claim for leather", "decade" in lines, False)
+    check("no em dashes in new copy",
+          any("\u2014" in l for l in list(fabric.NATURAL_LINES.values()) +
+              list(fabric.FIBRE_PART_LINES.values()) + [r[3] for r in fabric._GRADE_RULES]), False)
+
+
+def test_v37_market_price():
+    """Brooklyn, 23 Oct 2026: "Worth it?" must say what similar pieces sell for
+    today, never what a piece costs to make, and answer on the fast scan."""
+    print("\n=== v37: worth it, from today's listings ===")
+    import market, main
+    lst = lambda t, p, src: {"title": t, "extracted_price": p, "source": src}
+    shops = [f"Shop{i}" for i in range(8)]
+    styles = ["Moto", "Biker", "Bomber", "Blazer", "Trucker", "Racer", "Aviator", "Shirt",
+              "Cropped", "Longline", "Boxy", "Belted", "Collarless", "Quilted", "Zip", "Field",
+              "Western", "Utility", "Oversized", "Fitted", "Suede", "Classic", "Vintage", "Wrap"]
+    leather = [lst(f"Women's {w} Leather Jacket 100% Leather", 300 + i * 20, shops[i % 8])
+               for i, w in enumerate(styles)]
+    faux = [lst(f"Women's {w} Jacket 100% Polyurethane", 60, shops[i % 8]) for i, w in enumerate(styles)]
+    fetch = lambda q, num=100: leather + faux
+    _, m = fabric.quality_score("100% Leather")
+    pc = market.check(100, "jacket", m, "women", fetch=fetch)
+    check("real leather is now priced", pc["level"], market.GOOD)
+    check("...against real leather only", pc["benchmark"]["median"] >= 300, True)
+    check("short line says what pieces sell for", pc["short"].startswith("Similar pieces sell for $"), True)
+    check("plain words", (market.LABELS[market.GOOD], market.LABELS[market.OVER]), ("Good price", "Priced high"))
+    _, fm = fabric.quality_score("100% Polyurethane")
+    check("faux leather isn't priced", market.benchmark("jacket", fm, fetch=fetch), None)
+    row = market.price_rows(pc)[0]
+    check("row title is the word", row["title"], "Good price")
+    check("no cost-to-make wording", any("to make" in (row[k] or "") for k in ("line", "detail")), False)
+    check("not enough listings says so", market.price_rows({"level": None, "line": market.NOT_ENOUGH,
+                                                           "pending": False})[0]["line"], market.NOT_ENOUGH)
+    check("still waiting: no row", market.price_rows({"pending": True}), [])
+    r = main.analyze(main.AnalyzeRequest(item=main.Item(composition="100% cotton", price=40, mode="score")))
+    check("no type: asks what it is", r["price_check"].get("needs_type"), True)
+    check("...as a Worth it? row",
+          [x["title"] for x in r["breakdown"] if x["side"] == "price"], ["Worth it?"])
+    r = main.analyze(main.AnalyzeRequest(item=main.Item(composition="100% cotton", mode="score")))
+    check("no price: no price row", [x for x in r["breakdown"] if x["side"] == "price"], [])
+    check("price section comes last", main.BREAKDOWN_SECTIONS[-1]["label"], "WORTH IT?")
+
+
 def test_lifespan_is_sourced():
     """v26. "How long it lasts" must move with the garment, not the score band."""
     print("\n=== how long it lasts is computed, not templated ===")
@@ -306,7 +376,8 @@ def test_lifespan_is_sourced():
           tee("100% Cotton")["washes"], 45)
     check("wool outlasts cotton (Laitala & Klepp 2020)",
           tee("100% Wool")["wears"] > tee("100% Cotton")["wears"], True)
-    check("silk outlasts wool", tee("100% Silk")["wears"] > tee("100% Wool")["wears"], True)
+    # v36: silk's +2.2 years came from rarely worn ties, so it is held at cotton.
+    check("silk no longer outlasts wool", tee("100% Silk")["wears"] < tee("100% Wool")["wears"], True)
     check("viscose not credited with the regenerated bonus",
           tee("100% Viscose")["wears"] < tee("100% Lyocell")["wears"], True)
     check("same fibre, two garments: same multiplier, different washes",
@@ -537,7 +608,7 @@ def test_leather_and_garment_type():
     fake = fabric.quality_score("100% vegan leather")[0]
     real = fabric.quality_score("100% lambskin leather")[0]
     check("faux leather never scores like leather", fake < 4.5, True)
-    check("real leather scores as leather (tag-only cap)", real, 7.9)
+    check("real leather scores as leather (v36 parts)", real, 7.5)
     check("faux suede is polyester, not leather",
           fabric.parse_composition("100% faux suede"), [("polyester", 100)])
 
@@ -735,9 +806,8 @@ def test_v11_department_price_fast_accounts():
     check("no price -> no value verdict", fast["value_note"], None)
     priced = main.analyze(main.AnalyzeRequest(item=main.Item(composition="100% Polyester",
                                                              price=75, category="t-shirt", mode="score")))
-    # v28: the price verdict comes from live listings, so the fast path only
-    # says it's coming.
-    check("price -> price check pending", priced["price_check"]["pending"], True)
+    # v37: the fast path now runs the listings check itself, so it answers.
+    check("price -> price check answered on the fast path", priced["price_check"]["pending"], False)
     check("price -> no prompt", priced["price_prompt"], None)
     # v14 added season fields; the two 1.1 keys must stay so older builds keep working.
     check("/config keeps 1.1 keys", {"home_image_alt", "home_image_url"} <= set(main.home_config()), True)
@@ -919,11 +989,11 @@ def test_v13_evidence_and_rarity():
     import fund, seams
     print("\n=== v13: a score only goes as high as its evidence ===")
     a = lambda comp, c=None: fabric.analyze({"composition": comp, "construction": c})
-    check("tag-only 100% leather caps at 7.9", a("100% Leather")["score"], 7.9)
+    check("tag-only 100% leather, own parts (v36)", a("100% Leather")["score"], 7.5)
     check("tag-only is 'Solid', not 'The real thing'", a("100% Leather")["verdict"], "Solid")
     check("capped scan explains what's missing", a("100% Wool")["ceiling_note"] is not None, True)
-    check("poly-lined leather", a("100% Leather / Lining: 100% Polyester")["score"], 7.5)
-    check("stated grade lifts the cap to 8.4", a("Full-grain leather. Lining: 100% cupro")["score"], 8.4)
+    check("poly-lined leather", a("100% Leather / Lining: 100% Polyester")["score"], 7.0)
+    check("stated grade can reach The real thing", a("Full-grain leather. Lining: 100% cupro")["score"], 8.2)
     check("genuine leather is marked down", a("Genuine leather")["score"] < 7.5, True)
     h = a("Full-grain leather. Lining: 100% cupro",
           ["french_seams", "hand_finished", "quality_hardware"])
@@ -937,7 +1007,7 @@ def test_v13_evidence_and_rarity():
     check("listing words count as evidence",
           fabric.quality_score("Shirt 100% Supima cotton, French seams, horn buttons, 240gsm",
                                allow_bare=False)[0] > 7.9, True)
-    check("durability isn't capped", a("100% Leather")["durability"], 8.0)
+    check("durability isn't capped", a("100% Wool")["durability"], 8.1)
     check("Heirloom is rare: no tag-only text can reach it",
           max(a(t)["score"] for t in ["100% cashmere", "100% merino", "full grain leather",
                                       "100% silk mulberry 22 momme", "100% Supima cotton 280gsm"]) < 9, True)
@@ -1317,7 +1387,7 @@ def test_v30_fair_price():
     # Quality never reads price: same piece, same score at any price.
     a, b = fair("100% cashmere", "sweater", 80), fair("100% cashmere", "sweater", 900)
     check("price never changes the score",
-          fabric.quality_detail("100% cashmere")["score"], 7.9)
+          fabric.quality_detail("100% cashmere")["score"], 7.8)
     check("...but it changes the value verdict", a["level"] != b["level"], True)
 
     # No price: still a range, and the 1.x prompt says it.
@@ -1451,7 +1521,8 @@ def test_v30_fair_price():
     from fastapi.testclient import TestClient
     r = TestClient(main.app).post("/analyze", json={"item": {"composition": "64% polyester 36% cotton",
                                                              "mode": "score"}}).json()
-    check("the first quick scan carries the row", any(x["side"] == "price" for x in r["breakdown"]), True)
+    # v37: no fabric-cost price row any more; the row comes only with a price.
+    check("no price, no price row", any(x["side"] == "price" for x in r["breakdown"]), False)
 
 
 def test_v30_3_every_fibre_on_the_tag():
@@ -1530,7 +1601,7 @@ def test_v30_5_more_types_and_true_colour():
            and catalog.garment_group(c) is None and value.group_for(c) is None], [])
     r = TestClient(main.app).post("/analyze", json={"item": {"composition": "100% wool", "mode": "score"}}).json()
     check("each scan says which sections to show", [x["side"] for x in r["breakdown_sections"]],
-          ["bad", "price", "good", "note"])
+          ["bad", "good", "note", "price"])
     check("black pixels read black", colour.name_pixel(15, 15, 18), "black")
 
 
@@ -1627,6 +1698,8 @@ if __name__ == "__main__":
     test_no_fast_fashion()
     test_price_earns_itself()
     test_lifespan_is_sourced()
+    test_v36_premium_fibres()
+    test_v37_market_price()
     test_score_parts()
     test_market_price_check()
     test_products()

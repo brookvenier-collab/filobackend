@@ -56,7 +56,10 @@ DISCLAIMER = ("Compared with current prices for similar pieces. "
               "It's not a judgement on the brand or the shop.")
 
 GOOD, FAIR, OVER = "good_value", "fair", "overpaying"
-LABELS = {GOOD: "Good value", FAIR: "Fair price", OVER: "You may be overpaying"}
+# v37: the words the app shows, short enough for the in-store card.
+LABELS = {GOOD: "Good price", FAIR: "Fair price", OVER: "Priced high"}
+# v37: how long the fast verdict waits for the listings before it gives up.
+FAST_TIMEOUT_S = 7
 
 _GROUP_WORD = {"t-shirt": "t-shirt", "top": "top", "shirt": "shirt",
                "blouse": "blouse", "sweater": "sweater", "cardigan": "cardigan",
@@ -134,8 +137,10 @@ def comparable(item, group, matched, department=None):
     detail = fabric.quality_detail(catalog._describe(item), allow_bare=False)
     if detail is None:
         return False
-    if fabric.material_class(detail["matched"]):
-        return False   # leather has its own markets; not handled here yet
+    # v37: real leather only against real leather; never against faux, and
+    # a fabric piece never against leather.
+    if fabric.material_class(detail["matched"]) != fabric.material_class(matched):
+        return False
     key, pct = _dominant(matched)
     lkey, lpct = _dominant(detail["matched"])
     return (lkey == key and lpct >= DOMINANT_MIN
@@ -160,15 +165,23 @@ def benchmark(group, matched, department=None, fetch=None, country=None):
     key, pct = _dominant(matched)
     if key is None or pct < DOMINANT_MIN or group not in _GROUP_WORD:
         return None
-    if fabric.material_class(matched):
+    # v37: real leather is compared with real leather listings. Faux is not
+    # priced here (its listings rarely state what it is made of).
+    if fabric.material_class(matched) == "faux leather":
         return None
     gl, currency, place = MARKETS.get((country or "US").upper(), MARKETS["US"])
     if fetch is None:
         fetch = lambda q, num=100: catalog._fetch(q, num=num, gl=gl)
     prices, shops, seen, per_shop = [], set(), set(), {}
     sample = []
-    for q in queries(group, matched, department):
-        for item in fetch(q, num=100) or []:
+    # v37: the searches run side by side, so the in-store verdict isn't three
+    # searches long. Results are read back in query order, as before.
+    qs = queries(group, matched, department)
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=max(1, len(qs))) as pool:
+        batches = list(pool.map(lambda q: fetch(q, num=100) or [], qs))
+    for batch in batches:
+        for item in batch:
             lk = catalog.listing_key(item)
             if lk in seen:
                 continue
@@ -235,8 +248,32 @@ def check(price, group, matched, department=None, fetch=None, country=None):
     based_on = (f"Based on {bench['listings']} similar listings at {bench['shops']} shops "
                 f"in {'the US' if bench['market'] == 'US' else bench['market']}, {bench['as_of']}. Prices in {bench['currency']}.")
     public = {k: v for k, v in bench.items() if not k.startswith("_")}
-    return {"level": level, "label": LABELS[level], "line": line,
+    # v37: one short line for the in-store card: what similar pieces sell for.
+    short = f"Similar pieces sell for {rng} right now."
+    return {"level": level, "label": LABELS[level], "line": line, "short": short,
             "based_on": based_on, "benchmark": public, "disclaimer": DISCLAIMER}
+
+
+_ROW_LEVEL = {GOOD: "good", FAIR: "ok", OVER: "poor"}
+
+
+def price_rows(pc):
+    """v37. The "Worth it?" row for the result page, from today's listings.
+
+    Replaces the "What it should cost" row built from fabric costs: shoppers
+    are told what similar pieces sell for now, never what a piece costs to make."""
+    if not pc:
+        return []
+    if pc.get("level"):
+        return [{"side": "price", "level": _ROW_LEVEL.get(pc["level"], "unknown"),
+                 "icon": "tag", "title": pc["label"],
+                 "line": pc.get("short") or pc.get("line") or "",
+                 "detail": " ".join(x for x in (pc.get("line"), pc.get("based_on"),
+                                                pc.get("disclaimer")) if x) or None}]
+    if pc.get("pending"):
+        return []
+    return [{"side": "price", "level": "unknown", "icon": "tag",
+             "title": "Worth it?", "line": pc.get("line") or NOT_ENOUGH, "detail": None}]
 
 
 # ------------------------------------------------------------- v30.8 the store
