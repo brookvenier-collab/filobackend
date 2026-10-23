@@ -20,29 +20,31 @@ import fabric
 
 # fibre: (display name, icon, line, detail)
 FIBRES = {
-    "cotton": ("Cotton", "leaf", "Breathes well and gets softer with washing.",
+    # v38: lines checked against the evidence (filo-v36-premium-fibres.md).
+    "cotton": ("Cotton", "leaf", "Breathes well and is easy to care for.",
                "Cotton is a natural fibre. It is strong, easy to wash and kind to skin. "
                "Thin cotton can lose its shape, so feel the weight of the fabric."),
-    "linen": ("Linen", "leaf", "Strong, cool and gets better with age.",
-              "Linen comes from the flax plant. It is one of the strongest natural fibres "
-              "and it softens every time you wash it. It creases easily, which is normal."),
-    "hemp": ("Hemp", "leaf", "Very strong and softens over time.",
-             "Hemp is a tough natural fibre, a lot like linen. It holds up to years of washing."),
-    "wool": ("Wool", "warm", "Warm, springs back into shape and lasts for years.",
-             "Wool is a natural fibre that keeps you warm, resists smells and holds its shape. "
-             "Wash it gently and it can last decades."),
+    "linen": ("Linen", "leaf", "Cool and breathes well. Creases easily.",
+              "Linen comes from the flax plant. The fibre is stronger than cotton and gets "
+              "stronger when wet, but the fabric wears where it creases and folds."),
+    "hemp": ("Hemp", "leaf", "A strong fibre that breathes well.",
+             "Hemp is a tough natural fibre, a lot like linen. It breathes well and creases easily."),
+    "wool": ("Wool", "warm", "Warm, breathes, and needs washing less often.",
+             "Wool keeps you warm and resists smells, so it needs washing about half as "
+             "often as cotton. Knits can pill, but the pills tend to fall off."),
     "merino": ("Merino wool", "warm", "Soft, warm wool that does not itch.",
                "Merino is a fine wool. It is soft on skin, warm for its weight and does not "
                "hold smells. Wash it gently."),
     "cashmere": ("Cashmere", "warm", "Very soft and warm. Needs gentle care.",
-                 "Cashmere is a fine goat hair. Good cashmere lasts for years, but cheap "
-                 "cashmere pills quickly. A tag cannot tell you which one it is."),
-    "silk": ("Silk", "drop", "Smooth, strong and breathes well.",
-             "Silk is a natural fibre with a soft shine. It is strong for how light it is, "
-             "but it marks with water and needs gentle washing."),
-    "leather": ("Real leather", "shield", "Softens with wear and can last decades.",
-                "Real leather ages instead of wearing out. It can be cleaned, conditioned "
-                "and repaired, which plastic leather cannot."),
+                 "Cashmere is a fine goat hair. Its short fibres pill more than most. A tighter "
+                 "knit and 2-ply yarn help, and a tag cannot tell you which one it is."),
+    "silk": ("Silk", "drop", "Smooth and breathes well, but delicate.",
+             "Silk is a natural fibre with a soft shine. It is weaker when wet and sunlight "
+             "weakens it, so wash it gently and keep it out of the sun."),
+    "leather": ("Real leather", "shield", "Much harder to tear than fabric.",
+                "Real leather doesn't wear out in the wash. It fails by drying out and "
+                "cracking, so clean and condition it. It can be repaired, which plastic "
+                "leather cannot."),
     "lyocell": ("Lyocell", "drop", "Soft and smooth. Made from wood pulp.",
                 "Lyocell (also sold as Tencel) is made from wood. It is soft, breathes well "
                 "and is stronger than viscose, though not as hard wearing as cotton or linen."),
