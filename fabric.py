@@ -338,8 +338,52 @@ K_PILLS = 1.0
 K_WEAR = 1.0
 
 
+# v36 (22 Oct 2026): the five premium fibres, researched one by one. Before
+# this, wool, cashmere, silk and leather all scored above the tag-only cap and
+# were cut to the same 79, and leather was a hand-set 8.0. Sources and gaps:
+# claude/filo-v36-premium-fibres.md (Project). Direction sourced; sizes are
+# Filo's judgement, kept small where the evidence has no number.
+#
+#   pilling  pills MORE than cotton (separate from "pills", which is about
+#            pills that stay on). Wool knit grade 2 vs cotton 3-4 to 4 on the
+#            same pilling test (Coldea & Vlad 2017, not like-for-like); short
+#            cashmere fibres drive pilling (Li & Wei 2006; Li, Zhu & Wei 2014,
+#            grade 2 "severe"); pilling on 83% of discarded cardigans (Cooper
+#            et al. 2015). Wool pills tend to break off (Yates 2002), so wool
+#            carries half of cashmere's weight.
+#   wear     silk: most weight lost in rub tests (Pant, khadi study), 80-85% of
+#            its strength wet (Sonthisombat & Speakman 2015). Half weight: no
+#            like-for-like number. Linen: worse than cotton on tear and wear at
+#            similar construction (Xiong, Jiang & Sui 2012), stretches 1.8% vs
+#            cotton's 5-10% before breaking, so it wears at folds. A third
+#            weight: the fibre itself is stronger than cotton (Sfiligoj Smole 2013).
+FIBRE_EXTRA = {
+    "wool":     [("pilling", -0.3)],
+    "merino":   [("pilling", -0.3)],
+    "cashmere": [("pilling", -0.6)],
+    "silk":     [("wear", -0.5)],
+    "linen":    [("wear", -0.3)],
+}
+
+# Leather is not a textile and has no moisture-regain or lifespan figure, so it
+# gets its own parts instead of the textile ones.
+#   wear     ISO 14931:2021 asks garment leather for 15 N tear and 40 N stitch
+#            tear; measured goat nappa garment leather tore at 50-82 N (JALCA
+#            2012) against ~20 N for a 200 gsm cotton twill (ISO 13937-3 tender
+#            spec). Different test methods, so +1.0, the size of viscose's
+#            penalty in the other direction, not more.
+#   comfort  water vapour passes through leather several times less than
+#            cotton, and a closed or plastic finish cuts it "drastically"
+#            (NBS 1950; Leathermag; goat leather study). Methods differ: -0.5.
+#   life     no lifespan survey covers leather (Laitala & Klepp, WRAP and
+#            Ecobalyse all leave it out). Held at cotton. GAP.
+LEATHER_PARTS = [("life", 0.0), ("comfort", -0.5), ("pills", 0.0), ("wear", 1.0)]
+
+
 def fibre_parts(key):
     """[(part, points)] for a garment made 100% of this fibre."""
+    if key == "leather":
+        return list(LEATHER_PARTS)
     if key not in MOISTURE_REGAIN:
         return []
     life = K_LIFE * (LIFE_FIBRE.get(key, 1.0) - 1.0)
@@ -349,7 +393,11 @@ def fibre_parts(key):
                                    / MOISTURE_REGAIN["cotton"]))
     pills = -K_PILLS if key in PILLS_STAY else 0.0
     wear = -K_WEAR * WEAR_WEAKER.get(key, 0.0)
-    return [("life", life), ("comfort", comfort), ("pills", pills), ("wear", wear)]
+    parts = [("life", life), ("comfort", comfort), ("pills", pills), ("wear", wear)]
+    for name, pts in FIBRE_EXTRA.get(key, []):
+        parts = [(n, p + pts) if n == name else (n, p) for n, p in parts] \
+            if any(n == name for n, _ in parts) else parts + [(name, pts)]
+    return parts
 
 
 def fibre_points(key):
@@ -366,6 +414,18 @@ PART_LINES = {
     ("comfort", False): "Takes up very little moisture, so it can feel hot and clammy.",
     ("pills", False): "When it pills, the pills stay on. The fibre is too strong to let them break off.",
     ("wear", False): "Wears through faster than cotton in rub tests.",
+    ("wear", True): "Much harder to tear than woven fabric.",
+    ("pilling", False): "Knits in this fibre pill more than cotton. A tighter knit pills less.",
+}
+# Where one fibre needs its own words for a part.
+FIBRE_PART_LINES = {
+    ("leather", "comfort"): "Breathes less than fabric, and less again under a heavy coating.",
+    ("linen", "wear"): "Wears faster than cotton where it creases and folds.",
+    ("silk", "wear"): "Delicate. It loses strength when wet and in strong sunlight.",
+    ("cashmere", "pilling"): "Pills more than most fibres, because its fibres are short. "
+                             "A tighter knit and 2-ply yarn help.",
+    ("wool", "pilling"): "Wool knits pill more than cotton, but the pills tend to fall off.",
+    ("merino", "pilling"): "Wool knits pill more than cotton, but the pills tend to fall off.",
 }
 
 
@@ -373,6 +433,7 @@ def score_parts(matched):
     """The score taken apart: start at 7.0, then each part, blended by
     percentage. Only parts that move the score by 0.1 or more are listed."""
     total = sum(p for _, p, _ in matched) or 100
+    top_key = max(matched, key=lambda m: m[1])[0] if matched else None
     sums = {}
     for key, pct, _ in matched:
         parts = fibre_parts(key)
@@ -385,11 +446,11 @@ def score_parts(matched):
             sums[name] = sums.get(name, 0.0) + pts * pct / total
     out = [{"part": "reference", "points": SCORE_REFERENCE,
             "line": "Starts at 70, the cotton reference used in EU and French durability rules."}]
-    for name in ("life", "comfort", "pills", "wear", "fixed"):
+    for name in ("life", "comfort", "pills", "pilling", "wear", "fixed"):
         pts = round(sums.get(name, 0.0), 1)
         if abs(pts) < 0.1:
             continue
-        line = PART_LINES.get((name, pts > 0), "")
+        line = FIBRE_PART_LINES.get((top_key, name)) or PART_LINES.get((name, pts > 0), "")
         out.append({"part": name, "points": pts, "line": line})
     return out
 
@@ -509,23 +570,30 @@ CAP_CONSTRUCTION = 8.9
 # (pattern on the raw text, fibre it applies to, adjustment, plain-English line)
 _GRADE_RULES = [
     (r"\bfull[\s-]*grain\b", "leather", 0.4,
-     "Full-grain leather — the strongest, most durable layer of the hide."),
+     "Full-grain leather. The whole surface of the hide, uncoated, so it breathes and ages well."),
     (r"\btop[\s-]*grain\b", "leather", 0.1,
-     "Top-grain leather — sanded smooth, a step below full-grain."),
+     "Top-grain leather. Sanded smooth, a step below full-grain."),
+    # v36: splits are not weaker (the corium is the tougher layer; Northampton
+    # thesis; NBS 1930s). What fails is the painted or plastic finish they need:
+    # it cracks and peels, and it cuts breathability (ISO 14931; Leathermag).
     (r"\bgenuine[\s-]+leather\b|\bcorrected[\s-]*grain\b|\bsplit[\s-]*(?:grain|leather)\b",
      "leather", -0.8,
-     "\u201cGenuine leather\u201d is a lower layer of the hide — real, but it "
-     "won't age like full-grain."),
+     "\u201cGenuine leather\u201d usually means a lower layer with a painted or "
+     "plastic finish on top. The finish can crack and peel, and it breathes less."),
+    # v36: ISO 14931 allows suede and nubuck weaker rub and light fastness
+    # (20 dry rubs vs 50; light 3 vs 4) than finished leather.
+    (r"\bsuede\b|\bnubuck\b", "leather", -0.2,
+     "Suede and nubuck have no protective finish, so colour rubs off and fades sooner."),
     (r"\b(?:supima|pima|egyptian|sea[\s-]+island|(?:extra[\s-]+)?long[\s-]+staple)\b",
-     "cotton", 0.4, "Long-staple cotton — smoother, stronger, and slower to pill."),
+     "cotton", 0.4, "Long-staple cotton. Smoother, stronger, and slower to pill."),
     (r"\bsuper\s*(?:1[0-9]0|[2-9]00)'?s?\b", "wool", 0.3,
-     "A stated wool grade — finer fibre, a smoother cloth."),
+     "A stated wool grade. Finer fibre, a smoother cloth."),
     (r"\b(?:extra[\s-]*fine|superfine|ultra[\s-]*fine)\s+merino\b", "merino", 0.2,
-     "Extra-fine merino — softer and finer than standard."),
+     "Extra-fine merino. Softer and finer than standard."),
     (r"\bgrade[\s-]*a\b|\b[2-4][\s-]*ply\b", "cashmere", 0.3,
-     "Graded, multi-ply cashmere — denser and far slower to pill."),
+     "Graded or 2-ply cashmere. Usually denser, so it pills less."),
     (r"\bmulberry\b|\b(?:19|2[0-9]|3[0-9])[\s-]*momme\b", "silk", 0.3,
-     "Mulberry or heavy-weight silk — the durable kind."),
+     "Mulberry or heavier silk. A heavier weight holds up better."),
 ]
 
 # Construction. Each has a token (the app or a seam photo can send it directly)
@@ -777,7 +845,11 @@ LIFE_UNKNOWN_WEARS = 80
 _AVG_LIFE_YEARS = 5.2   # Laitala & Klepp 2020, average garment lifespan estimate
 LIFE_FIBRE = {
     # Laitala & Klepp 2020, extra years of life versus cotton.
-    "silk": 1 + 2.2 / _AVG_LIFE_YEARS,
+    # v36: silk held at cotton. Laitala & Klepp 2020 give silk +2.2 years, but
+    # their 2017 wardrobe audit (467 adults) says silk's long life is "mainly due
+    # to a high proportion of men's ties": worn rarely, not tougher. Silk fabric
+    # lost the most weight in rub tests and is 15-20% weaker wet.
+    "silk": 1.0,
     "wool": 1 + 1.2 / _AVG_LIFE_YEARS,
     "merino": 1 + 1.2 / _AVG_LIFE_YEARS,
     "cashmere": 1 + 1.2 / _AVG_LIFE_YEARS,
@@ -844,7 +916,8 @@ def lifespan(composition, group=None):
         elif g <= 140:
             mult *= LIFE_GSM_THIN
     top_key = max(matched, key=lambda m: m[1])[0]
-    if top_key == "cotton" and re.search(_GRADE_RULES[3][0], text):
+    long_staple = next(r[0] for r in _GRADE_RULES if r[1] == "cotton")
+    if top_key == "cotton" and re.search(long_staple, text):
         mult *= LIFE_LONG_STAPLE
     mult = max(LIFE_BAND[0], min(LIFE_BAND[1], mult))
 
@@ -936,6 +1009,16 @@ def care_flags(matched):
     return flags
 
 
+# v36: each premium fibre says what is true of it, not one line for all.
+NATURAL_LINES = {
+    "wool": "Breathes, and needs washing about half as often as cotton. Knits can pill.",
+    "merino": "Breathes, and needs washing about half as often as cotton. Knits can pill.",
+    "cashmere": "Soft and warm, but it pills more than most fibres. Treat it gently.",
+    "silk": "Breathes well, but it's delicate. Weaker when wet, and sunlight weakens it.",
+    "linen": "Breathes well and gets stronger when wet, but it creases and wears at the folds.",
+}
+
+
 def reasons(score, matched, price):
     out = []
     synth = sum(p for k, p, _ in matched if k in SYNTHETICS)
@@ -952,15 +1035,16 @@ def reasons(score, matched, price):
                        "and peels, usually within a couple of years, and can't "
                        "be repaired.")
     elif material == "real leather":
-        out.append("Real leather — it softens and ages instead of wearing out, "
-                   "and a good one lasts decades with care.")
+        # v36: "lasts decades" had no source. No lifespan study covers leather.
+        out.append("Real leather. Much harder to tear than fabric, but it "
+                   "breathes less, and how long it lasts depends on care.")
     elif synth >= 80:
         out.append(f"{synth}% synthetic. It holds its shape, but it takes up almost no "
                    "moisture, so it can feel hot, and when it pills the pills stay on.")
-    elif top_pct >= 100 and top_key in NATURALS:
-        out.append(f"100% {top_key}. Breathable and easy to care for. A heavier weight lasts longer.")
-    elif natural >= 80:
-        out.append(f"Mostly {top_key}. Breathable and easy to care for. A heavier weight lasts longer.")
+    elif (top_pct >= 100 and top_key in NATURALS) or natural >= 80:
+        lead = "100%" if top_pct >= 100 else "Mostly"
+        out.append(f"{lead} {top_key}. " + NATURAL_LINES.get(
+            top_key, "Breathable and easy to care for. A heavier weight lasts longer."))
     else:
         out.append(f"A {natural}% natural / {synth}% synthetic blend — a trade-off between feel and longevity.")
 
@@ -1095,7 +1179,8 @@ def analyze(item):
     if material == "faux leather":
         wears = "Low — expect cracking and peeling within a couple of years of regular wear."
     elif material == "real leather":
-        wears = "Built to last — decades of wear with basic care."
+        wears = ("Tough. It doesn't wear out in the wash. It fails by drying out "
+                 "and cracking, so care decides how long it lasts.")
     if material:
         flags = ["Don't machine wash — spot clean, and keep it away from direct heat."] + flags
 
