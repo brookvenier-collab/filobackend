@@ -623,7 +623,9 @@ CONSTRUCTION = {
                          "Painted or burnished edges, sealed so they won't fray."),
     "saddle_stitched":  (0.3, r"\bsaddle[\s-]*stitch(?:ed|ing)?\b",
                          "Saddle stitched. One broken stitch won't unravel the seam."),
-    "leather_lining":   (0.2, r"\b(?:leather|calfskin|lambskin|goatskin|suede)[\s-]+lin(?:ed|ing)\b"
+    # v40: "Leather Lining: 100% Polyester" is a section label, not a leather
+    # lining, so the first form must not be followed by a colon.
+    "leather_lining":   (0.2, r"\b(?:leather|calfskin|lambskin|goatskin|suede)[\s-]+lin(?:ed|ing)\b(?!\s*:)"
                               r"|\blin(?:ed|ing)\s*(?:in|:)?\s*(?:100%\s*)?(?:calfskin|lambskin|goatskin|leather)\b",
                          "Lined in leather, not fabric."),
     # Faults. Always applied in full, and any one of them rules out Heirloom.
