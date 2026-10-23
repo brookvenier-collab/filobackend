@@ -9,6 +9,8 @@ not as a failing test to adjust.
 import fabric
 import barcodes as _barcodes
 _barcodes._fetch_upcitemdb = lambda g: None   # tests stay offline
+import catalog as _catalog
+_catalog.STRICT_SOURCES = False   # older tests use made-up shop names; v43 test turns it on
 import catalog
 
 FAILS = []
@@ -451,6 +453,32 @@ def test_v42_usual_price():
     check("silly prices are refused", products.record_price(g, 0, "CA"), False)
     check("no shopper id is stored with a price", set(products._mem_prices[0]),
           {"gtin", "price", "currency", "country", "source", "day"})
+
+
+def test_v43_trusted_recommendations():
+    """Brooklyn, 23 Oct 2026: a $3 '100% organic cotton women's t-shirt 00242' from
+    an unknown seller was recommended. Only trusted sources now."""
+    print("\n=== v43: recommendations only from brands Filo trusts ===")
+    import catalog, brands
+    catalog.STRICT_SOURCES = True
+    try:
+        junk = {"title": "100% Organic Cotton Women's T-Shirt 00242", "extracted_price": 3,
+                "source": "Shopxyz Marketplace", "product_link": "https://x.example/1"}
+        kotn = {"title": "Kotn Women's Essential Crew Tee 100% Organic Cotton", "extracted_price": 35,
+                "source": "Kotn", "product_link": "https://kotn.example/2"}
+        catalog._fetch = (lambda real: real)(catalog._fetch)
+        real = catalog._fetch
+        catalog._fetch = lambda q, num=40, gl=None: [junk, kotn]
+        try:
+            res = catalog.search_alternatives(category="t-shirt", price=40, scanned_score=6.0)
+        finally:
+            catalog._fetch = real
+        names = [r.get("name") or "" for r in res]
+        check("the unknown $3 seller is gone", any("00242" in n for n in names), False)
+        check("an approved brand still shows", any("Kotn" in n for n in names), True)
+        check("approved brands are recognised", brands.is_approved("Kotn"), True)
+    finally:
+        catalog.STRICT_SOURCES = False
 
 
 def test_v39_more_listings():
@@ -2866,6 +2894,7 @@ if __name__ == "__main__":
     test_v39_more_listings()
     test_v41_barcode_brain()
     test_v42_usual_price()
+    test_v43_trusted_recommendations()
     test_v40_leather_lining_label()
     test_score_parts()
     test_market_price_check()

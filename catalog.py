@@ -287,6 +287,8 @@ def listing_key(item):
 # A scan has to feel instant — the Scan screen promises "under 5 seconds".
 # Searches run concurrently and the whole search phase is capped, so a slow or
 # hanging provider costs a few seconds, never the verdict.
+MIN_RECOMMEND_PRICE = 10   # v43: under this it's a blank or a multipack, not a recommendation
+STRICT_SOURCES = True      # v43: no unknown sellers in recommendations (tests switch it off)
 QUERY_TIMEOUT = 7       # seconds per individual search
 SEARCH_BUDGET = 9       # seconds for the whole search phase, all queries
 CACHE_TTL = 60 * 60 * 6  # repeat searches are free for six hours
@@ -716,6 +718,14 @@ def search_alternatives(category=None, name=None, price=None,
     out, mainstream_used, preowned_used, per_brand = [], 0, 0, {}
     for r in kept:
         b = (r.get("brand") or "").lower().strip()
+        # v43: no unknown sellers. A recommendation comes from a maker Filo rates,
+        # an approved brand, a recognised store, or trusted resale. And nothing
+        # priced like a multipack or a marketplace blank.
+        if (STRICT_SOURCES and r["tier"] == brands.TIER_UNKNOWN and not r.get("preowned")
+                and not brands.is_approved(r.get("retailer"), r.get("name"), r.get("brand"))):
+            continue
+        if STRICT_SOURCES and (r.get("price") or 0) < MIN_RECOMMEND_PRICE:
+            continue
         if per_brand.get(b, 0) >= MAX_PER_BRAND:
             continue
         if r.get("preowned"):

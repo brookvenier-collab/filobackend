@@ -349,6 +349,23 @@ def is_mainstream(source):
 # a small label Filo has never heard of, which has already proved its fibre
 # content and cleared the quality floor, is exactly the discovery this product
 # exists to make. A mall chain that cleared the same bar is not a discovery.
+# v43 (23 Oct 2026): Filo's approved first-wave brands (the intelligence engine's
+# list, bank_data/approved_first_wave.json). Until the engine's product bank is
+# live, they're the only unrecognised-by-tier names a recommendation may come from.
+APPROVED_BRANDS = {
+    "&daughter", "another tomorrow", "armedangels", "asket", "babaa", "babaà",
+    "blackhorse lane ateliers", "colorful standard", "community clothing", "finisterre",
+    "hessnatur", "hiut denim", "jamieson's of shetland", "john smedley", "kotn", "kowtow",
+    "kuyichi", "l'envers", "lady white co", "mud jeans", "naked & famous", "nudie jeans",
+    "peregrine", "sunspel",
+}
+
+
+def is_approved(*texts):
+    """True when a source or title names one of Filo's approved brands."""
+    return any(_has_name((t or "").lower(), APPROVED_BRANDS) for t in texts if t)
+
+
 TIER_MAKER = 3        # Filo already rates them for cloth
 TIER_UNKNOWN = 2      # unrecognised, passed every test — the interesting case
 TIER_MAINSTREAM = 1   # mall and mass-market
