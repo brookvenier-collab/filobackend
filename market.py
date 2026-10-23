@@ -36,8 +36,10 @@ import fabric
 import brands
 import catalog
 
-MIN_LISTINGS = 20
-MIN_SHOPS = 5
+# v39 (23 Oct 2026): 20/5 left a plain 100% cotton tee in Canada with no answer
+# (5 usable listings). 15 listings from 4 shops is still a fair middle.
+MIN_LISTINGS = 15
+MIN_SHOPS = 4
 DOMINANT_MIN = 70        # the fibre must be at least this % of the piece
 DOMINANT_TOLERANCE = 20  # and within this many points of the scanned piece
 # v28.1 (after the first live probe): "You may be overpaying" only past the 90th
@@ -59,7 +61,7 @@ GOOD, FAIR, OVER = "good_value", "fair", "overpaying"
 # v37: the words the app shows, short enough for the in-store card.
 LABELS = {GOOD: "Good price", FAIR: "Fair price", OVER: "Priced high"}
 # v37: how long the fast verdict waits for the listings before it gives up.
-FAST_TIMEOUT_S = 7
+FAST_TIMEOUT_S = 9
 
 _GROUP_WORD = {"t-shirt": "t-shirt", "top": "top", "shirt": "shirt",
                "blouse": "blouse", "sweater": "sweater", "cardigan": "cardigan",
@@ -115,36 +117,51 @@ def _regular_price(item):
 
 
 def comparable(item, group, matched, department=None):
-    """True if this listing can stand in the comparison."""
+    """True if this listing states its fibre and can stand in the comparison."""
+    return match_kind(item, group, matched, department) == "stated"
+
+
+def match_kind(item, group, matched, department=None):
+    """v39. "stated": the listing gives the fibre as a percentage that matches.
+    "similar": it names only our fibre, without a percentage ("Cotton Crew Tee"),
+    which is how most shop titles are written. None: not comparable."""
     title = item.get("title") or ""
     source = item.get("source")
     if brands.is_resale(source) or brands.is_resale(title):
-        return False
+        return None
     # Multipacks and wholesale lots price per pack, not per piece.
     if catalog._BULK.search(title.lower()):
-        return False
+        return None
     # Children's sizes are a different market.
     if _KIDS.search(title.lower()):
-        return False
+        return None
     # Fast fashion and unverifiable marketplaces are left out. This raises the
     # median, so it makes "overpaying" harder to reach, never easier.
     if brands.is_blocked(source):
-        return False
+        return None
     if not catalog.same_garment(title, group):
-        return False
+        return None
     if department and not catalog.same_department(title, department):
-        return False
-    detail = fabric.quality_detail(catalog._describe(item), allow_bare=False)
-    if detail is None:
-        return False
-    # v37: real leather only against real leather; never against faux, and
-    # a fabric piece never against leather.
-    if fabric.material_class(detail["matched"]) != fabric.material_class(matched):
-        return False
+        return None
     key, pct = _dominant(matched)
-    lkey, lpct = _dominant(detail["matched"])
-    return (lkey == key and lpct >= DOMINANT_MIN
-            and abs(lpct - pct) <= DOMINANT_TOLERANCE)
+    desc = catalog._describe(item)
+    detail = fabric.quality_detail(desc, allow_bare=False)
+    if detail is not None:
+        # v37: real leather only against real leather; never against faux, and
+        # a fabric piece never against leather.
+        if fabric.material_class(detail["matched"]) != fabric.material_class(matched):
+            return None
+        lkey, lpct = _dominant(detail["matched"])
+        ok = (lkey == key and lpct >= DOMINANT_MIN
+              and abs(lpct - pct) <= DOMINANT_TOLERANCE)
+        return "stated" if ok else None
+    # No percentage. Count it only if the one fibre it names is ours.
+    bare = fabric.quality_detail(desc, allow_bare=True)
+    if bare is None or len(bare["matched"]) != 1:
+        return None
+    if fabric.material_class(bare["matched"]) != fabric.material_class(matched):
+        return None
+    return "similar" if bare["matched"][0][0] == key else None
 
 
 def _percentile(sorted_vals, q):
@@ -160,8 +177,56 @@ def _percentile(sorted_vals, q):
 MARKETS = {"US": ("us", "USD", "US"), "CA": ("ca", "CAD", "Canada")}
 
 
+def _collect(group, matched, department, fetch):
+    """(stated, similar) listings for one market: [(price, shop, sample)]."""
+    qs = queries(group, matched, department)
+    from concurrent.futures import ThreadPoolExecutor
+    # v37: the searches run side by side. Results are read back in query order.
+    with ThreadPoolExecutor(max_workers=max(1, len(qs))) as pool:
+        batches = list(pool.map(lambda q: fetch(q, num=100) or [], qs))
+    stated, similar, seen = [], [], set()
+    for batch in batches:
+        for item in batch:
+            lk = catalog.listing_key(item)
+            if lk in seen:
+                continue
+            seen.add(lk)
+            kind = match_kind(item, group, matched, department)
+            if kind is None:
+                continue
+            p = _regular_price(item)
+            if p is None:
+                continue
+            shop = str(item.get("source") or "").lower().strip()
+            row = (p, shop, {"title": item.get("title"), "shop": item.get("source"),
+                             "price": p, "link": item.get("product_link") or item.get("link")})
+            (stated if kind == "stated" else similar).append(row)
+    return stated, similar
+
+
+def _pool(rows):
+    """Prices and shops, at most MAX_PER_SHOP from any one shop."""
+    prices, shops, per_shop, sample = [], set(), {}, []
+    for p, shop, smp in rows:
+        if per_shop.get(shop, 0) >= MAX_PER_SHOP:
+            continue
+        per_shop[shop] = per_shop.get(shop, 0) + 1
+        prices.append(p)
+        shops.add(shop)
+        sample.append(smp)
+    return prices, shops, sample
+
+
+def _enough(prices, shops):
+    return len(prices) >= MIN_LISTINGS and len(shops) >= MIN_SHOPS
+
+
 def benchmark(group, matched, department=None, fetch=None, country=None):
-    """The usual price for pieces like this, from current listings, or None."""
+    """The usual price for pieces like this, from current listings, or None.
+
+    v39: listings that state the fibre come first. If there aren't enough,
+    listings that name only our fibre ("Cotton Crew Tee") join them. In Canada,
+    if Canadian shops still don't give enough, US listings join in CAD."""
     key, pct = _dominant(matched)
     if key is None or pct < DOMINANT_MIN or group not in _GROUP_WORD:
         return None
@@ -169,37 +234,36 @@ def benchmark(group, matched, department=None, fetch=None, country=None):
     # priced here (its listings rarely state what it is made of).
     if fabric.material_class(matched) == "faux leather":
         return None
-    gl, currency, place = MARKETS.get((country or "US").upper(), MARKETS["US"])
-    if fetch is None:
-        fetch = lambda q, num=100: catalog._fetch(q, num=num, gl=gl)
-    prices, shops, seen, per_shop = [], set(), set(), {}
-    sample = []
-    # v37: the searches run side by side, so the in-store verdict isn't three
-    # searches long. Results are read back in query order, as before.
-    qs = queries(group, matched, department)
+    code = (country or "US").upper()
+    gl, currency, place = MARKETS.get(code, MARKETS["US"])
+
+    def fetch_for(g):
+        if fetch is not None:
+            return fetch
+        return lambda q, num=100: catalog._fetch(q, num=num, gl=g)
+
     from concurrent.futures import ThreadPoolExecutor
-    with ThreadPoolExecutor(max_workers=max(1, len(qs))) as pool:
-        batches = list(pool.map(lambda q: fetch(q, num=100) or [], qs))
-    for batch in batches:
-        for item in batch:
-            lk = catalog.listing_key(item)
-            if lk in seen:
-                continue
-            seen.add(lk)
-            if not comparable(item, group, matched, department):
-                continue
-            p = _regular_price(item)
-            if p is None:
-                continue
-            shop = str(item.get("source") or "").lower().strip()
-            if per_shop.get(shop, 0) >= MAX_PER_SHOP:
-                continue
-            per_shop[shop] = per_shop.get(shop, 0) + 1
-            prices.append(p)
-            shops.add(shop)
-            sample.append({"title": item.get("title"), "shop": item.get("source"),
-                           "price": p, "link": item.get("product_link") or item.get("link")})
-    if len(prices) < MIN_LISTINGS or len(shops) < MIN_SHOPS:
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        here = pool.submit(_collect, group, matched, department, fetch_for(gl))
+        # Canada: the US search runs alongside, used only if Canada is short.
+        us = pool.submit(_collect, group, matched, department, fetch_for("us")) \
+            if code == "CA" else None
+        stated, similar = here.result()
+        us_rows = us.result() if us is not None else ([], [])
+
+    basis = "stated"
+    prices, shops, sample = _pool(stated)
+    if not _enough(prices, shops):
+        basis = "similar"
+        prices, shops, sample = _pool(stated + similar)
+    if not _enough(prices, shops) and code == "CA":
+        import value                      # late: value is heavy
+        fx = value.FX["USD_CAD"]
+        conv = [(round(p * fx, 2), shop, dict(smp, price=round(p * fx, 2)))
+                for p, shop, smp in us_rows[0] + us_rows[1]]
+        prices, shops, sample = _pool(stated + similar + conv)
+        place = "Canada and the US"
+    if not _enough(prices, shops):
         return {"enough": False, "listings": len(prices), "shops": len(shops),
                 "_sample": sample}
     prices.sort()
@@ -207,6 +271,7 @@ def benchmark(group, matched, department=None, fetch=None, country=None):
         "enough": True,
         "listings": len(prices),
         "shops": len(shops),
+        "basis": basis,
         "p25": round(_percentile(prices, 0.25)),
         "median": round(statistics.median(prices)),
         "p75": round(_percentile(prices, 0.75)),
