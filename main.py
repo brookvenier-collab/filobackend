@@ -17,6 +17,7 @@ from pydantic import BaseModel
 import fabric
 import catalog
 import market
+import barcodes
 import products
 import events
 import aggregates
@@ -43,6 +44,7 @@ def _startup():
     homecard.init_schema()
     voices.init_schema()
     products.init_schema()
+    barcodes.init_schema()
     products.purge_votes()
     fund.start_daily_thread()
 
@@ -214,7 +216,14 @@ def _value_alternatives(alternatives, item, country):
 @app.post("/analyze")
 def analyze(req: AnalyzeRequest):
     # v29: a barcode Filo has seen before fills in what the shopper didn't send.
-    known = products.lookup(req.item.gtin) if req.item.gtin else None
+    # v41: Filo's database first, then one outside barcode lookup (barcodes.py).
+    known = None
+    if req.item.gtin:
+        try:
+            known = barcodes.resolve(req.item.gtin,
+                                     count_miss=not (req.item.composition or "").strip())
+        except Exception:                   # noqa: BLE001  never block a verdict
+            known = products.lookup(req.item.gtin)
     scanned_composition = _best_composition((req.item.composition or "").strip(),
                                             req.item.tag_text)
     from_db = not scanned_composition and bool(products.value(known, "composition"))
@@ -1036,6 +1045,25 @@ def registrant_set(req: RegistrantRequest,
     num = req.number.strip().lstrip("0") if kind == "RN" else req.number.strip()
     products.store().set_registrant(kind, num, req.registrant.strip()[:120], req.role)
     return {"ok": True, "kind": kind, "number": num}
+
+
+class CatalogImport(BaseModel):
+    source: str
+    records: List[dict]
+
+
+@app.post("/internal/catalog/import")
+def catalog_import(req: CatalogImport, x_filo_admin: Optional[str] = Header(default=None)):
+    """v41. Load products from a retailer or affiliate feed (barcodes.py)."""
+    _require_admin(x_filo_admin)
+    return barcodes.import_records(req.records[:5000], req.source)
+
+
+@app.get("/internal/barcodes/misses")
+def barcode_misses(days: int = 30, x_filo_admin: Optional[str] = Header(default=None)):
+    """v41. Barcodes shoppers scanned that Filo couldn't fill in, most-scanned first."""
+    _require_admin(x_filo_admin)
+    return {"rows": barcodes.misses(days=days)}
 
 
 @app.get("/internal/products/brands")

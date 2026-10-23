@@ -7,6 +7,8 @@ something is recommending an item we cannot vouch for — treat that as broken,
 not as a failing test to adjust.
 """
 import fabric
+import barcodes as _barcodes
+_barcodes._fetch_upcitemdb = lambda g: None   # tests stay offline
 import catalog
 
 FAILS = []
@@ -380,6 +382,51 @@ def test_v40_leather_lining_label():
     r = main.analyze(main.AnalyzeRequest(item=main.Item(composition=tag, category="Jacket", mode="score")))
     life = [x["line"] for x in r["breakdown"] if x["title"] == "How long it lasts"]
     check("no 'decades' for leather", any("ecade" in l for l in life), False)
+
+
+def test_v41_barcode_brain():
+    """Brooklyn, 23 Oct 2026: barcode -> Filo's database -> outside lookup ->
+    verdict, so a shopper doesn't have to scan two things every time."""
+    print("\n=== v41: the barcode brain ===")
+    import barcodes, products, main
+    products._memory.__init__()
+    barcodes._cache.clear(); barcodes._misses.clear()
+    gtin = "0012345678905"
+    found = {"brand": "Kotn", "name": "Essential Crew Tee", "image": "https://img.example/t.jpg",
+             "url": "https://kotn.example/tee", "description": "A soft tee.", "source": "upcitemdb"}
+    calls = []
+    fake = lambda g: (calls.append(g), found)[1]
+    k = barcodes.resolve(gtin, fetch=fake)
+    check("unknown barcode asks outside once", len(calls), 1)
+    check("...and saves the brand", products.value(k, "brand"), "Kotn")
+    check("...and the photo", products.value(k, "image"), "https://img.example/t.jpg")
+    check("no fabric yet counts as a miss", barcodes.misses()[0]["code"], products.normalize_gtin(gtin))
+    check("...noting the outside lookup found it", barcodes.misses()[0]["external_found"], True)
+    barcodes.resolve(gtin, fetch=fake)
+    check("a known brand is not looked up again", len(calls), 1)
+    sid = "test-session-123456"
+    r = main.analyze(main.AnalyzeRequest(item=main.Item(composition="100% Cotton", gtin=gtin,
+                                                        session_id=sid, mode="score")))
+    check("the care tag scan fills in the fabric",
+          products.value(products.lookup(gtin), "composition"), "100% cotton")
+    r2 = main.analyze(main.AnalyzeRequest(item=main.Item(gtin=gtin, mode="score")))
+    check("next time the barcode alone gives the score", r2["score"], 7.0)
+    check("...with the brand", r2["product"]["fields"]["brand"]["value"], "Kotn")
+    check("store price-tag codes are kept", products.normalize_gtin("c:ab12cd34"), "C:AB12CD34")
+    check("...and never looked up outside", barcodes.external_lookup("C:AB12CD34", fetch=fake), None)
+    check("only https photos", products._clean("image", "http://x.example/a.jpg"), None)
+    res = barcodes.import_records([
+        {"gtin": "4006381333931", "brand": "Uniqlo", "title": "Supima Cotton Crew Neck T-Shirt",
+         "image_url": "https://img.example/u.jpg", "description": "100% Cotton. Machine wash."},
+        {"gtin": "123", "brand": "Bad"}], source="feed-test")
+    check("feed import adds the good record, skips the bad", (res["added"], res["skipped"]), (1, 1))
+    u = products.lookup("4006381333931")
+    check("feed facts are locked", u["fields"]["brand"]["status"], "locked")
+    check("feed fabric read from the description", products.value(u, "composition"), "100% cotton")
+    r3 = main.analyze(main.AnalyzeRequest(item=main.Item(gtin="4006381333931", mode="score")))
+    check("a feed product scores from the barcode alone", r3["score"], 7.0)
+    barcodes.external_lookup("0099999999999", fetch=lambda g: (_ for _ in ()).throw(TimeoutError()))
+    check("an outside failure never breaks a scan", True, True)
 
 
 def test_v39_more_listings():
@@ -1751,6 +1798,7 @@ if __name__ == "__main__":
     test_v36_premium_fibres()
     test_v37_market_price()
     test_v39_more_listings()
+    test_v41_barcode_brain()
     test_v40_leather_lining_label()
     test_score_parts()
     test_market_price_check()

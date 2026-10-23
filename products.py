@@ -45,9 +45,11 @@ log = logging.getLogger("filo.products")
 
 CONFIRM_VOTES = 2
 CONFIRM_SHARE = 2 / 3
-FIELDS = ("brand", "name", "category", "composition", "made_in", "rn", "ca_number")
+# v41: image, url and source, filled from barcode lookups and retailer feeds.
+FIELDS = ("brand", "name", "category", "composition", "made_in", "rn", "ca_number",
+          "image", "url", "source")
 MAX_LEN = {"brand": 80, "name": 120, "category": 60, "composition": 200,
-           "made_in": 60, "rn": 8, "ca_number": 8}
+           "made_in": 60, "rn": 8, "ca_number": 8, "image": 500, "url": 500, "source": 40}
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS products (
@@ -85,8 +87,17 @@ CREATE TABLE IF NOT EXISTS rn_registrants (
 
 # ------------------------------------------------------------------ validation
 
+_STORE_CODE = re.compile(r"^C:([A-Z0-9]{6,24})$")
+
+
 def normalize_gtin(raw) -> Optional[str]:
-    """A valid UPC-A / EAN-8 / EAN-13 / GTIN-14 as 14 digits, else None."""
+    """A valid UPC-A / EAN-8 / EAN-13 / GTIN-14 as 14 digits, else None.
+
+    v41: a store's own price-tag code (Code 128), sent by the app as "C:<code>",
+    is kept as "C:<CODE>" so Filo's database can still learn it."""
+    m = _STORE_CODE.match(str(raw or "").strip().upper())
+    if m:
+        return "C:" + m.group(1)
     digits = re.sub(r"\D", "", str(raw or ""))
     if len(digits) not in (8, 12, 13, 14):
         return None
@@ -145,6 +156,8 @@ def _clean(field, value) -> Optional[str]:
         return None
     if field in ("rn", "ca_number"):
         return v if v.isdigit() else None
+    if field in ("image", "url"):
+        return v if v.startswith("https://") and " " not in v else None
     if field == "category":
         return v.lower()
     return v
