@@ -367,6 +367,41 @@ def test_v37_market_price():
     check("price section comes last", main.BREAKDOWN_SECTIONS[-1]["label"], "WORTH IT?")
 
 
+def test_v39_more_listings():
+    """Brooklyn, 23 Oct 2026: a 100% cotton tee at $25 in Canada said "Not enough
+    similar listings" (5 usable). Shop titles rarely spell out "100%"."""
+    print("\n=== v39: plain shop titles count, Canada falls back to the US ===")
+    import market
+    words = ["Crew", "Boxy", "Classic", "Relaxed", "Fitted", "Pocket", "Ringer", "Baby",
+             "Muscle", "Vintage", "Heavyweight", "Essential", "Slub", "Oversized", "Cropped",
+             "Longline", "Scoop", "Raglan"]
+    bare = [{"title": f"Women's {w} Cotton Tee", "extracted_price": 20 + i * 2,
+             "source": f"Shop{i % 6}"} for i, w in enumerate(words)]
+    _, m = fabric.quality_score("100% cotton")
+    check("a plain 'Cotton Tee' title counts as similar",
+          market.match_kind(bare[0], "t-shirt", m, "women"), "similar")
+    check("...but not as stated", market.comparable(bare[0], "t-shirt", m, "women"), False)
+    other = {"title": "Women's Crew Polyester Tee", "extracted_price": 15, "source": "X"}
+    check("a title naming another fibre doesn't", market.match_kind(other, "t-shirt", m, "women"), None)
+    blend = {"title": "Women's Cotton Modal Tee", "extracted_price": 15, "source": "X"}
+    check("a blend named in words doesn't", market.match_kind(blend, "t-shirt", m, "women"), None)
+    pc = market.check(25, "t-shirt", m, "women", fetch=lambda q, num=100: bare)
+    check("plain titles now give an answer", pc["level"] is not None, True)
+    check("...in plain words", pc["short"].startswith("Similar pieces sell for $"), True)
+    calls = []
+    def by_country(q, num=100, gl=None):
+        return []
+    import catalog
+    real = catalog._fetch
+    try:
+        catalog._fetch = lambda q, num=100, gl=None: bare if gl == "us" else []
+        b = market.benchmark("t-shirt", m, "women", country="CA")
+    finally:
+        catalog._fetch = real
+    check("Canada short: US listings join", (b["enough"], b["market"]), (True, "Canada and the US"))
+    check("...converted to CAD", b["currency"], "CAD")
+
+
 def test_lifespan_is_sourced():
     """v26. "How long it lasts" must move with the garment, not the score band."""
     print("\n=== how long it lasts is computed, not templated ===")
@@ -1700,6 +1735,7 @@ if __name__ == "__main__":
     test_lifespan_is_sourced()
     test_v36_premium_fibres()
     test_v37_market_price()
+    test_v39_more_listings()
     test_score_parts()
     test_market_price_check()
     test_products()
